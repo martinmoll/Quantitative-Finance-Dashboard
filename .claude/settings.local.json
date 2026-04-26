@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import json,sys; nb=json.load\\(sys.stdin\\); cell=nb[''''cells''''][10]; [print\\(o.get\\(''''text'''',''''''''\\)\\) if isinstance\\(o.get\\(''''text'''',''''''''\\),str\\) else print\\(''''''''.join\\(o.get\\(''''text'''',[]\\)\\)\\) for o in cell.get\\(''''outputs'''',[]\\)]\")",
+      "Bash(python -c \":*)",
+      "Bash(grep -v '^$')"
+    ]
+  }
+}
