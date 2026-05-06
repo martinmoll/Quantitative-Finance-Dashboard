@@ -45,3 +45,12 @@ HGB_vt0.8_th0.2   1.03    19.5%   18.9%  -41.9%  2662%
 HGB_vt0.8_th0.25  1.07    22.6%   21.1%  -42.0%  4505%
 SPY               0.66    10.4%   15.7%  -50.3%   459%
 
+BEST STRATEGY: HGB_vt0.05 (SR = 1.20)
+SPY Benchmark SR = 0.66
+Alpha over SPY = +0.54 SR
+
+              SR Ann Mean Ann Vol     MDD  Total
+Strategy                                        
+HGB_vt0.05  1.20    22.0%   18.3%  -38.7%  4405%
+SPY         0.66    10.4%   15.7%  -50.3%   459%
+
