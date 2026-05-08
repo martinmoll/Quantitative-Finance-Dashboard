@@ -10,7 +10,7 @@
 
 **Disqualifying:** look-ahead bias, overfitting/excessive params, MDD > 40%.
 
-**Current best:** K10_vt0.05 + 4mo regime filter — SR=1.53, MDD=-18.0% → **15/20 tier**. Next target: SR > 1.7 for 18/20.
+**Current best:** K10_vt0.05 + 6mo regime filter (with .shift(1) fix) — SR=1.48, MDD=-27.6% → **12/20 tier**. Next target: SR > 1.5 for 15/20.
 
 ---
 
@@ -143,23 +143,26 @@ CONFIRMED: All 118 features is optimal. No feature reduction.
 
 ## Phase 2e: Momentum Regime Filter (K=10, vt=0.05)
 
+**NOTE:** Phases 2e-2g below used a regime filter WITHOUT `.shift(1)`, which introduced
+look-ahead bias (month m's own return was included in the trailing sum used to decide
+whether to invest in month m). These results are preserved for historical context but
+are **invalid**. See Phase 2h for corrected results.
+
 Going to cash when trailing SPY return is negative. 6-month lookback is the sweet spot — SR jumps to 1.46!
 
 ============================================================
-MOMENTUM REGIME FILTER RESULTS (K=10, vt=0.05)
+MOMENTUM REGIME FILTER RESULTS (K=10, vt=0.05) [BUGGY — no .shift(1)]
 ============================================================
                   SR Ann Mean Ann Vol     MDD   Total  MDD Pass?
 K10_regime6mo   1.46    25.4%   17.5%  -33.4%   8751%  Yes
 K10_regime12mo  1.35    24.7%   18.3%  -33.3%   7402%  Yes
 K10_no_filter   1.36    29.0%   21.4%  -36.2%  14770%  Yes
 
-NEW BEST: K10_vt0.05 + 6mo regime filter — SR=1.46, MDD=-33.4% → nearly 15/20 tier
 
-
-## Phase 2f: Regime Lookback Fine-Tune (K=10, vt=0.05)
+## Phase 2f: Regime Lookback Fine-Tune (K=10, vt=0.05) [BUGGY]
 
 ============================================================
-REGIME LOOKBACK FINE-TUNE (K=10, vt=0.05)
+REGIME LOOKBACK FINE-TUNE (K=10, vt=0.05) [BUGGY — no .shift(1)]
 ============================================================
               SR Ann Mean Ann Vol     MDD   Total
 regime_3mo  1.46    23.1%   15.8%  -15.8%   5953%
@@ -172,10 +175,10 @@ regime_9mo  1.35    23.8%   17.7%  -33.9%   6439%
 no_filter   1.36    29.0%   21.4%  -36.2%  14770%
 
 
-## Phase 2g: Vol Tilt Re-Optimization with 4mo Regime Filter (K=10)
+## Phase 2g: Vol Tilt Re-Optimization with 4mo Regime Filter (K=10) [BUGGY]
 
 ============================================================
-VOL TILT + 4MO REGIME FILTER (K=10)
+VOL TILT + 4MO REGIME FILTER (K=10) [BUGGY — no .shift(1)]
 ============================================================
                         SR Ann Mean Ann Vol     MDD   Total
 K10_vt0.0_regime4mo   1.34    25.5%   19.0%  -20.1%   8402%
@@ -186,7 +189,32 @@ K10_vt0.05_regime4mo  1.53    25.3%   16.6%  -18.0%   8759%
 K10_vt0.06_regime4mo  1.43    23.2%   16.2%  -15.9%   5955%
 K10_vt0.07_regime4mo  1.39    21.5%   15.4%  -18.5%   4412%
 
-NEW BEST: K10_vt0.05 + 4mo regime filter — SR=1.53, MDD=-18.0% → 15/20 tier
+
+## Phase 2h: Corrected Regime Filter (with .shift(1) fix)
+
+**Bug fix:** Added `.shift(1)` to both `trailing_spy` (regime filter) and
+`trailing_spy_vol` (vol tilt threshold) so that month m's investment decision
+only uses data through month m-1. This is critical — without it, the strategy
+has look-ahead bias (disqualifying under the rubric).
+
+Impact: SR dropped from 1.53 → 1.41 with the old 4-month lookback. Re-swept
+lookbacks 2-9 months to find the new optimum.
+
+============================================================
+CORRECTED REGIME LOOKBACK SWEEP (K=10, vt=0.05, .shift(1) applied)
+============================================================
+              SR Ann Mean Ann Vol     MDD   Total
+regime_2mo  1.35    24.5%   18.2%  -36.0%   7112%
+regime_3mo  1.38    22.3%   16.1%  -19.2%   5236%
+regime_4mo  1.41    23.7%   16.8%  -27.6%   6447%
+regime_5mo  1.37    23.8%   17.3%  -32.3%   6483%
+regime_6mo  1.48    25.8%   17.4%  -27.6%   9015%
+regime_7mo  1.40    25.4%   18.1%  -35.2%   8335%
+regime_8mo  1.37    24.5%   17.9%  -36.2%   7195%
+regime_9mo  1.32    23.6%   17.9%  -36.2%   6097%
+no_filter   1.36    29.0%   21.4%  -36.2%  14770%
+
+CORRECTED BEST: K10_vt0.05 + 6mo regime filter — SR=1.48, MDD=-27.6% → 12/20 tier
 
 
 ## Phase 3: Diagnostics & Alternative Weighting
@@ -207,5 +235,5 @@ Equal-weight confirmed optimal.
   Mean monthly TO:   56.2%
   Annualized TO:     674%
   TC drag (10 bps):  0.67%/year
-  Net SR (approx):   1.33
+  Net SR (approx):   ~1.28 (based on corrected SR=1.48)
 
