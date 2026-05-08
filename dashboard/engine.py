@@ -167,7 +167,7 @@ def build_portfolio(
     -------
     dict with keys:
         monthly_returns : pd.Series   — monthly portfolio returns (OOS)
-        holdings        : dict        — {month: list of permno in long portfolio}
+        holdings        : dict        — {month: DataFrame of held stocks}
         ic              : pd.Series   — monthly Spearman IC (after vol_tilt)
         turnover        : pd.Series   — monthly one-way turnover
     """
@@ -218,7 +218,7 @@ def build_portfolio(
             port_ret = 0.0
 
         monthly_returns[m] = port_ret
-        holdings[m] = top['permno'].tolist()
+        holdings[m] = top
 
         # ---- Turnover (one-way) ----
         curr_weights = pd.Series(0.0, index=df_m['permno'].values)
