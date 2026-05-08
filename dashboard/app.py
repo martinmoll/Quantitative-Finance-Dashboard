@@ -229,6 +229,235 @@ if st.session_state.pinned:
 result = st.session_state.current_result
 
 if result is not None:
-    pass  # --- Charts rendered below (Tasks 5-8) ---
+    import plotly.graph_objects as go
+
+    PIN_COLORS = ['#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']
+    rets = result['monthly_returns']
+
+    # === Row 1: KPI Cards ===
+    st.markdown("---")
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+
+    perf_stats = compute_perf(rets, ic=result['ic'], turnover=result['turnover'])
+    sr = perf_stats['SR']
+    kpi1.metric("Sharpe Ratio", f"{sr:.2f}")
+    kpi2.metric("Ann. Return", f"{perf_stats['Ann Return']:.1%}")
+    kpi3.metric("Ann. Volatility", f"{perf_stats['Ann Vol']:.1%}")
+    mdd = perf_stats['MDD']
+    kpi4.metric("Max Drawdown", f"{mdd:.1%}")
+
+    # === Row 2: Cumulative Wealth + Drawdown ===
+    st.markdown("---")
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        cum = (1 + rets).cumprod()
+        spy_cum = (1 + spy_oos).cumprod()
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=cum.index, y=cum.values, name="Strategy",
+            line=dict(color='#3b82f6', width=2)))
+        fig.add_trace(go.Scatter(
+            x=spy_cum.index, y=spy_cum.values, name="SPY",
+            line=dict(color='gray', width=2, dash='dash')))
+
+        for i, p in enumerate(st.session_state.pinned):
+            p_cum = (1 + p['result']['monthly_returns']).cumprod()
+            fig.add_trace(go.Scatter(
+                x=p_cum.index, y=p_cum.values, name=p['label'],
+                line=dict(color=PIN_COLORS[i % len(PIN_COLORS)], width=1.5)))
+
+        fig.update_layout(
+            title="Cumulative Wealth", yaxis_title="Growth of $1",
+            template="plotly_dark", height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with chart_col2:
+        cum = (1 + rets).cumprod()
+        dd = cum / cum.cummax() - 1
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=dd.index, y=dd.values, fill='tozeroy', name="Drawdown",
+            line=dict(color='#ef4444', width=1),
+            fillcolor='rgba(239,68,68,0.3)'))
+
+        for i, p in enumerate(st.session_state.pinned):
+            p_cum = (1 + p['result']['monthly_returns']).cumprod()
+            p_dd = p_cum / p_cum.cummax() - 1
+            fig.add_trace(go.Scatter(
+                x=p_dd.index, y=p_dd.values, name=p['label'],
+                line=dict(color=PIN_COLORS[i % len(PIN_COLORS)], width=1)))
+
+        fig.update_layout(
+            title="Drawdown", yaxis_title="Drawdown %",
+            yaxis_tickformat='.0%', template="plotly_dark",
+            height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # === Row 3: Sector Allocation + Holdings Table ===
+    st.markdown("---")
+    comp_col1, comp_col2 = st.columns(2)
+
+    with comp_col1:
+        sector_data = {}
+        for m, held in result['holdings'].items():
+            if 'sector' in held.columns:
+                counts = held['sector'].value_counts(normalize=True)
+                sector_data[m] = counts.to_dict()
+
+        if sector_data:
+            sector_df = pd.DataFrame(sector_data).T.fillna(0).sort_index()
+            fig = go.Figure()
+            for col in sector_df.columns:
+                fig.add_trace(go.Scatter(
+                    x=sector_df.index, y=sector_df[col],
+                    stackgroup='one', name=col, mode='lines'))
+            fig.update_layout(
+                title="Sector Allocation Over Time",
+                yaxis_title="Weight", yaxis_tickformat='.0%',
+                template="plotly_dark", height=400, margin=dict(t=40, b=40))
+            st.plotly_chart(fig, use_container_width=True)
+
+    with comp_col2:
+        last_month = sorted(result['holdings'].keys())[-1]
+        last_h = result['holdings'][last_month].copy()
+        display_cols = []
+        if 'permno' in last_h.columns:
+            display_cols.append('permno')
+        if 'sector' in last_h.columns:
+            display_cols.append('sector')
+        if 'pred' in last_h.columns:
+            display_cols.append('pred')
+        if 'y_raw' in last_h.columns:
+            display_cols.append('y_raw')
+        show_df = last_h[display_cols].copy()
+        show_df.columns = ['Permno', 'Sector', 'Predicted', 'Actual Return'][:len(display_cols)]
+        if 'Predicted' in show_df.columns:
+            show_df['Predicted'] = show_df['Predicted'].round(4)
+        if 'Actual Return' in show_df.columns:
+            show_df['Actual Return'] = (show_df['Actual Return'] * 100).round(2).astype(str) + '%'
+        st.markdown(f"**Holdings — {last_month}**")
+        st.dataframe(show_df.reset_index(drop=True), use_container_width=True, height=380)
+
+    # === Row 4: Rolling Sharpe + IC ===
+    st.markdown("---")
+    risk_col1, risk_col2 = st.columns(2)
+
+    with risk_col1:
+        rolling_sr = rets.rolling(12, min_periods=6).apply(
+            lambda x: x.mean() / x.std() * np.sqrt(12) if x.std() > 0 else 0)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=rolling_sr.index, y=rolling_sr.values, name="Strategy",
+            line=dict(color='#3b82f6', width=2)))
+
+        for i, p in enumerate(st.session_state.pinned):
+            p_sr = p['result']['monthly_returns'].rolling(12, min_periods=6).apply(
+                lambda x: x.mean() / x.std() * np.sqrt(12) if x.std() > 0 else 0)
+            fig.add_trace(go.Scatter(
+                x=p_sr.index, y=p_sr.values, name=p['label'],
+                line=dict(color=PIN_COLORS[i % len(PIN_COLORS)], width=1.5)))
+
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        fig.update_layout(
+            title="Rolling 12-Month Sharpe Ratio",
+            yaxis_title="Sharpe Ratio", template="plotly_dark",
+            height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with risk_col2:
+        ic = result['ic'].dropna()
+        ic_rolling = ic.rolling(12, min_periods=6).mean()
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=ic.index, y=ic.values, name="Monthly IC",
+            marker_color='rgba(59,130,246,0.4)'))
+        fig.add_trace(go.Scatter(
+            x=ic_rolling.index, y=ic_rolling.values,
+            name="12m Rolling Mean",
+            line=dict(color='#1e3a5f', width=2)))
+        fig.add_hline(
+            y=ic.mean(), line_dash="dash", line_color="red",
+            annotation_text=f"Mean={ic.mean():.3f}")
+
+        fig.update_layout(
+            title="Information Coefficient",
+            yaxis_title="Spearman IC", template="plotly_dark",
+            height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # === Row 5: Monthly Returns Heatmap + Turnover ===
+    st.markdown("---")
+    diag_col1, diag_col2 = st.columns(2)
+
+    with diag_col1:
+        rets_df = rets.to_frame('ret')
+        rets_df['year'] = rets_df.index.str[:4]
+        rets_df['month'] = rets_df.index.str[5:7].astype(int)
+        heatmap_pivot = rets_df.pivot_table(
+            values='ret', index='year', columns='month', aggfunc='first')
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        heatmap_pivot.columns = [month_labels[c - 1] for c in heatmap_pivot.columns]
+
+        fig = go.Figure(data=go.Heatmap(
+            z=heatmap_pivot.values * 100,
+            x=heatmap_pivot.columns,
+            y=heatmap_pivot.index,
+            colorscale=[[0, '#ef4444'], [0.5, '#1f2937'], [1, '#10b981']],
+            zmid=0,
+            text=np.round(heatmap_pivot.values * 100, 1),
+            texttemplate='%{text:.1f}%',
+            textfont=dict(size=10),
+            hovertemplate='%{y} %{x}: %{z:.1f}%<extra></extra>'))
+        fig.update_layout(
+            title="Monthly Returns Heatmap (%)",
+            template="plotly_dark", height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    with diag_col2:
+        to = result['turnover'].dropna()
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=to.index, y=to.values, name="Monthly Turnover",
+            marker_color='rgba(59,130,246,0.5)'))
+        fig.add_hline(
+            y=to.mean(), line_dash="dash", line_color="red",
+            annotation_text=f"Mean={to.mean():.1%}")
+        fig.update_layout(
+            title="Monthly Turnover", yaxis_title="Turnover",
+            yaxis_tickformat='.0%', template="plotly_dark",
+            height=400, margin=dict(t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # === Row 6: Comparison Table (only when configs are pinned) ===
+    if st.session_state.pinned:
+        st.markdown("---")
+        st.markdown("### Strategy Comparison")
+
+        comp_rows = []
+        current_perf = compute_perf(rets, "Current", ic=result['ic'], turnover=result['turnover'])
+        comp_rows.append(current_perf)
+
+        for p in st.session_state.pinned:
+            p_perf = compute_perf(
+                p['result']['monthly_returns'], p['label'],
+                ic=p['result']['ic'], turnover=p['result']['turnover'])
+            comp_rows.append(p_perf)
+
+        comp_df = pd.DataFrame(comp_rows).set_index('Strategy')
+        comp_df['SR'] = comp_df['SR'].map('{:.2f}'.format)
+        comp_df['Ann Return'] = comp_df['Ann Return'].map('{:.1%}'.format)
+        comp_df['Ann Vol'] = comp_df['Ann Vol'].map('{:.1%}'.format)
+        comp_df['MDD'] = comp_df['MDD'].map('{:.1%}'.format)
+        comp_df['Total Return'] = comp_df['Total Return'].map('{:.0%}'.format)
+        comp_df['Mean IC'] = comp_df['Mean IC'].map(lambda x: f'{x:.4f}' if pd.notna(x) else '-')
+        comp_df['Mean Turnover'] = comp_df['Mean Turnover'].map(lambda x: f'{x:.1%}' if pd.notna(x) else '-')
+        st.dataframe(comp_df, use_container_width=True)
+
 else:
     st.info("Click **Run Backtest** to see results.")

@@ -7,3 +7,6 @@ Data/alpha_dataset_v2.csv
 
 # Dashboard cache
 dashboard/.cache/
+
+# Superpowers brainstorm sessions
+.superpowers/
