@@ -176,3 +176,62 @@ Reconstructed from `Mkt_RF + rf_ff` per the notebook. Computed once on data load
 - Long-short mode (long-only only for v1)
 - Authentication / multi-user
 - Deployment (local only)
+- Live data ingestion (see v2 below)
+
+---
+
+## v2: Live Data Mode (yfinance)
+
+### Goal
+
+Add a "Live Data" mode that pulls recent price and fundamental data via `yfinance`, enabling the dashboard to run strategies on current market data and across different asset universes (not just the assignment's 1,216 stocks).
+
+### What yfinance Provides
+
+| Category | Available | Examples |
+|---|---|---|
+| Price / Momentum | Yes | OHLCV → ret_1, ret_2_12, vol_12m, RSI, MACD, Bollinger bands, ROC |
+| Basic Value | Yes | P/E, P/B, EV/EBITDA, dividend yield via `info` dict |
+| Accounting / Quality | Partial | Revenue, earnings, margins, ROE via quarterly financials |
+| Size | Yes | Market cap from `info` |
+| Analyst | No | SUE, revision, dispersion, beat — not in yfinance |
+| Options | No | IV surface, skew, put-call ratio, VRP — not in yfinance |
+| Peer / Industry | No | Pre-computed peer signals — must be rebuilt from the universe |
+| Fama-French Factors | No | Must source separately (Kenneth French data library or `pandas-datareader`) |
+
+### Reduced Feature Set (~40-50 features)
+
+A new feature builder `build_features_live(df_slice)` that constructs what's possible from yfinance data:
+
+- **Price/Momentum (~15):** ret_1, ret_2_12, ret_2_6, vol_12m, max_ret_12m, turnover, prc_52w_high, rsi_14, macd_hist, bb_position, roc_3, roc_6, skew_12m
+- **Value (~6):** bm (from P/B), ep (from P/E), sp (from P/S), cfp (from cash flow statement), dp_ratio
+- **Quality/Accounting (~10):** gpa, roe, roa, profit margin, revenue growth, earnings growth, leverage, asset growth
+- **Size (~2):** log_me, age (from IPO date)
+- **Composites (~10):** Same composite logic (earnings_composite, quality_composite, etc.) but built from the available subset
+- **Cross-sectional standardization:** Computed within the downloaded universe each month
+
+### Data Pipeline (`live_data.py`)
+
+1. **Universe definition:** User provides a list of tickers (or selects a preset: S&P 500, NASDAQ-100, custom)
+2. **Download:** `yfinance.download()` for OHLCV history + `Ticker.info` / `Ticker.quarterly_financials` for fundamentals
+3. **Feature construction:** Rolling window computations for momentum/technical features, point-in-time fundamentals
+4. **Cross-sectional standardization:** Rank or z-score within the universe each month
+5. **Output:** DataFrame in the same format as `alpha_dataset_v2.csv` (permno replaced by ticker, same column naming for shared features)
+
+### Model Considerations
+
+- The model trained on the full 118-feature assignment dataset won't transfer directly to the reduced ~45-feature live set — different feature space.
+- Two options: (a) retrain on the assignment data using only the ~45 features that yfinance can replicate, or (b) train fresh on downloaded historical data.
+- Option (a) is preferred for v2: validates that the reduced feature set still has predictive power on known data before going live.
+
+### Additional Dependencies (v2)
+
+- `yfinance` — market data download
+- `pandas-datareader` (optional) — Fama-French factors from Kenneth French library
+
+### Key Risks
+
+- yfinance rate limits and data reliability (free API, no SLA)
+- Survivorship bias in downloaded universes (yfinance only has currently listed tickers)
+- Fundamentals data quality varies by ticker (missing fields, inconsistent reporting dates)
+- Point-in-time correctness is harder to guarantee with yfinance (look-ahead risk on fundamentals)
