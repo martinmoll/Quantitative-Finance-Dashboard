@@ -151,6 +151,16 @@ Use **vt=0.05 unconditional** as the primary submission strategy. MDD=-38.7% pas
 
 ## Next Steps
 
-- Lock in final strategy choice
-- Update notebook to run only the chosen config
-- Fill in Task 2 writeup
+MDD is solved (vt=0.05 gives -38.7%, passing the < 40% constraint). The bottleneck is now **Sharpe Ratio**.
+
+**Rubric update:** SR=1.20 only scores 10/20. Need SR > 1.3 for 12/20, ideally > 1.5 for 15/20.
+
+Priority strategies to test for SR improvement (see plan Tasks 10-16):
+1. K tuning (K=10, 15, 20) — concentrate on best picks
+2. Retrain frequency (3mo, 6mo) — capture regime shifts faster
+3. Target winsorization — reduce outlier influence on training
+4. Feature selection — reduce from 97 to top 30-50 features
+5. Momentum regime filter — go to cash in bear markets
+6. HGB ensemble — average multiple model variants
+
+After individual testing, combine the winners and verify MDD < 40%.

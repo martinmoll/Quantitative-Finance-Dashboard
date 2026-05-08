@@ -117,10 +117,31 @@ run_model(df, feature_builder, estimator, name, K=30):
 
 ## Evaluation & Comparison
 
+### Grading Rubric — Performance Component (20 points)
+
+**Disqualifying conditions (automatic 0/20):**
+- Look-ahead bias in signal construction or backtesting
+- Overfitting or excessive parameterization (insufficient OOS validation, parameter count disproportionate to sample size, in-sample tuning without proper holdout)
+- Maximum drawdown exceeding 40%
+
+**Performance tiers (OOS Sharpe Ratio):**
+
+| Sharpe Ratio | Minimum Score |
+|---|---|
+| SR > 1.7 | 18 / 20 |
+| 1.5 < SR ≤ 1.7 | 15 / 20 |
+| 1.3 < SR ≤ 1.5 | 12 / 20 |
+| 1.2 < SR ≤ 1.3 | 10 / 20 |
+| SR ≤ 1.2 | Instructor's discretion |
+
+Scores above tier minimum for: transaction cost realism, robustness analysis, clarity of methodology.
+
+**Current status:** Best strategy HGB_vt0.05 has SR=1.20, MDD=-38.7% → 10/20 tier. **Target: SR > 1.3 minimum (12/20), stretch goal SR > 1.5 (15/20).**
+
 ### Per-Model Metrics (via existing `perf()` helper)
-- Annualized Sharpe Ratio (primary)
+- Annualized Sharpe Ratio (primary — determines grade tier)
 - Annualized return and volatility
-- Maximum Drawdown (constraint: < 40%)
+- Maximum Drawdown (hard constraint: < 40%, disqualifying if exceeded)
 - Total cumulative return
 
 ### Outputs
@@ -142,6 +163,72 @@ Structured markdown cell covering:
 - **Models:** Three models tested, key hyperparameter choices and rationale
 - **What worked:** Best model, best features, blend results, surprising findings from Lasso feature selection
 - **What didn't work:** Underperforming models/features, overfitting issues encountered
+
+---
+
+---
+
+## SR Improvement Strategies (Post-Rubric Update)
+
+Current best: HGB_vt0.05 → SR=1.20, MDD=-38.7%. Lands in 10/20 tier. Need SR > 1.3 for 12/20, ideally > 1.5 for 15/20.
+
+**Key constraint:** Must avoid overfitting — the rubric explicitly flags "excessive parameterization" and "in-sample tuning without proper holdout" as disqualifying. Every strategy below must be justifiable as economically motivated, not data-mined.
+
+### Strategy A: Retrain Frequency Tuning
+- Current: retrain every 12 months (expanding window)
+- Test: retrain every 6 months, every 3 months
+- Rationale: more frequent retraining captures regime shifts faster. Financial relationships change — a model trained in 2005 may be stale by 2006. More frequent retraining is standard practice, not overfitting, as long as the model itself isn't re-tuned.
+- Risk: overfitting concern is low — we're not adding parameters, just updating the same model more often on fresh data.
+
+### Strategy B: Portfolio Concentration (K Tuning)
+- Current: K=30 (top 30 stocks, equal weight)
+- Test: K=20, K=15, K=10
+- Rationale: if the model's top picks are genuinely better, concentrating on fewer stocks should increase returns. K=30 may dilute alpha by including weaker picks at positions 20-30.
+- Risk: higher concentration = higher vol. But if return rises proportionally more than vol, SR improves. Need to verify MDD stays under 40%.
+
+### Strategy C: Prediction-Weighted Portfolio
+- Current: equal weight across top K stocks
+- Test: weight stocks by predicted alpha (prediction-proportional weighting within top K)
+- Rationale: the model's #1 pick should get more weight than pick #30. Equal weighting throws away the model's conviction signal.
+- Risk: if the model's ranking is noisy, this concentrates on noise. Start with a mild version: weight = softmax(predictions) or clipped prediction weights.
+
+### Strategy D: Feature Selection / Reduction for HGB
+- Current: ~97 Tier 2 features
+- Test: reduce to 30-50 most important features (based on HGB feature importances from a preliminary run)
+- Rationale: fewer noisy features = cleaner signal for the model. Too many features dilute the important ones and can lead to spurious splits. This also directly addresses the rubric's overfitting concern — a model with fewer features is harder to call "excessively parameterized."
+- Method: train HGB once on full feature set, extract feature importances, keep top N features, retrain.
+
+### Strategy E: Target Variable Transformation
+- Current: predicting `y_xs` (cross-sectional standardized returns)
+- Test: predict `rank(y_raw)` or winsorized `y_xs` (clip at ±3 sigma)
+- Rationale: extreme returns (10x, -90%) distort the loss function. Winsorizing or rank-transforming the target reduces the influence of outliers on model fitting. The model only needs to rank stocks correctly, not predict magnitude.
+
+### Strategy F: Ensemble of HGB Variants
+- Current: single HGB model
+- Test: average predictions from 2-3 HGB models with different hyperparameters (e.g., different max_depth, learning_rate) or different random seeds
+- Rationale: reduces model variance. If each HGB model makes slightly different errors, averaging smooths them out. This is standard ensemble practice, not overfitting.
+- Must use fixed hyperparameters (no tuning), just diversity through different configs.
+
+### Strategy G: Momentum Regime Filter
+- Current: always invest in top K stocks regardless of market conditions
+- Test: reduce position size or go to cash when trailing 12-month market return is negative (bear market filter)
+- Rationale: long-only strategy inherently loses in bear markets. A simple "don't invest in bear markets" rule reduces drawdowns AND removes negative-return months, improving SR. Uses only backward-looking data.
+- Risk: may miss recovery rallies. But for SR purposes, avoiding the worst months helps more than catching the first bounce.
+
+### Strategy H: Minimum Holding Period / Turnover Reduction
+- Current: fully rebalance monthly (new top-K every month)
+- Test: only replace stocks that drop below rank 2K (i.e., keep a stock unless it falls out of the top 60)
+- Rationale: reduces turnover, which improves transaction cost realism (rubric bonus). Also reduces whipsawing — a stock that was #29 last month and #31 this month shouldn't trigger a trade.
+
+### Testing Priority
+1. **Strategy B (K tuning)** — simplest change, no model modification, could have big SR impact
+2. **Strategy A (retrain frequency)** — also simple, just a constant change
+3. **Strategy E (target winsorizing)** — easy to implement, addresses a real statistical issue
+4. **Strategy D (feature selection)** — reduces overfitting risk, aligns with rubric
+5. **Strategy G (momentum regime filter)** — could dramatically help MDD and SR
+6. **Strategy F (HGB ensemble)** — moderate effort, reliable SR improvement
+7. **Strategy C (prediction-weighted)** — moderate effort, uncertain payoff
+8. **Strategy H (turnover reduction)** — lower priority for SR but good for rubric bonus points
 
 ---
 

@@ -1,8 +1,10 @@
 # Alpha Challenge Strategy Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SKILLS: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Also use andrej-karpathy-skills:karpathy-guidelines when writing, reviewing, or refactoring code to avoid overcomplication, make surgical changes, surface assumptions, and define verifiable success criteria. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a multi-model walk-forward trading strategy in the existing Jupyter notebook to beat SPY (SR=0.66) using Lasso, Random Forest, and HistGradientBoosting with tiered feature engineering.
+**Goal:** Implement a multi-model walk-forward trading strategy in the existing Jupyter notebook to maximize OOS Sharpe Ratio while keeping MDD < 40%. Target: SR > 1.3 (12/20), stretch SR > 1.5 (15/20). Current best: SR=1.20 (10/20 tier).
+
+**Grading rubric (performance, 20 pts):** SR > 1.7 → 18pts, 1.5-1.7 → 15pts, 1.3-1.5 → 12pts, 1.2-1.3 → 10pts. Disqualifying: look-ahead bias, overfitting, MDD > 40%.
 
 **Architecture:** Two feature-builder functions (Tier 1 for linear, Tier 2 for ensemble models) feed into a unified `run_model()` walk-forward engine. Each model is a `(feature_builder, estimator)` pair in a dictionary. Results are compared via summary table and cumulative wealth plots.
 
@@ -623,6 +625,108 @@ Check:
 git add Code/AlphaChallenge.ipynb
 git commit -m "feat: add final results summary and writeup template"
 ```
+
+---
+
+---
+
+## Phase 2: SR Improvement (Post-Rubric Update)
+
+Current best: HGB_vt0.05, SR=1.20, MDD=-38.7% → 10/20 tier. These tasks aim to push SR above 1.3 (12/20) or 1.5 (15/20). Each strategy is tested independently against the current best, then the best combination is selected.
+
+**Important:** All changes must be economically motivated, not data-mined. The rubric disqualifies overfitting.
+
+---
+
+### Task 10: K Tuning (Portfolio Concentration)
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** Currently K=30. If the model's predictions are good, concentrating on fewer top picks should boost returns. Test K=10, 15, 20 with the current best config (HGB + vt=0.05).
+
+- [ ] **Step 1: Run walk-forward for HGB_vt0.05 with K=10, 15, 20, 30**
+- [ ] **Step 2: Compare SR and MDD across K values. Record results in progress.md**
+- [ ] **Step 3: Identify best K. If SR improves, update the default K**
+
+---
+
+### Task 11: Retrain Frequency Tuning
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** Currently retrain every 12 months. More frequent retraining captures changing market dynamics. Not overfitting — same model, just trained on more recent data more often.
+
+- [ ] **Step 1: Run walk-forward for HGB_vt0.05 with retrain every 3, 6, 12 months**
+- [ ] **Step 2: Compare SR and MDD. Record results in progress.md**
+- [ ] **Step 3: Identify best retrain frequency**
+
+---
+
+### Task 12: Target Winsorization
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** Extreme returns distort model training. Winsorize `y_xs` at ±3σ (or ±2σ) before training. The model only needs to rank stocks, not predict extreme magnitudes.
+
+- [ ] **Step 1: Add winsorization to the training target (clip y_xs at percentiles)**
+- [ ] **Step 2: Run walk-forward with winsorized vs non-winsorized target**
+- [ ] **Step 3: Compare SR and MDD. Record results**
+
+---
+
+### Task 13: Feature Selection (Reduce Tier 2)
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** 97 features is a lot. Many may be noise. Use HGB feature importances to keep only top 30-50 features. Fewer features = less overfitting = better OOS performance. Also addresses rubric's overfitting concern directly.
+
+- [ ] **Step 1: Extract feature importances from a trained HGB model**
+- [ ] **Step 2: Create a reduced feature builder (top 30, top 50 features)**
+- [ ] **Step 3: Run walk-forward with reduced features. Compare SR/MDD**
+
+---
+
+### Task 14: Momentum Regime Filter
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** Go to cash (or reduce allocation) when trailing 12-month SPY return is negative. Avoids the worst drawdown months, which both improves SR (removes negative returns) and reduces MDD.
+
+- [ ] **Step 1: Compute trailing 12-month SPY return for each OOS month**
+- [ ] **Step 2: Modify portfolio construction: if SPY trailing return < 0, return 0 (or risk-free rate) instead of investing**
+- [ ] **Step 3: Run walk-forward with and without regime filter. Compare SR/MDD**
+
+---
+
+### Task 15: HGB Ensemble (Multiple Seeds/Configs)
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** Average predictions from 3-5 HGB models with different random seeds or slightly different configs. Reduces variance in predictions. This is standard ensemble practice.
+
+- [ ] **Step 1: Define 3-5 HGB configs (different seeds, or minor param variations)**
+- [ ] **Step 2: Run walk-forward averaging their predictions**
+- [ ] **Step 3: Compare ensemble SR/MDD vs single model**
+
+---
+
+### Task 16: Combine Best Improvements
+
+**Files:**
+- Modify: `Code/AlphaChallenge.ipynb`
+
+**Context:** After testing each strategy independently, combine the ones that improved SR. E.g., best K + best retrain frequency + target winsorization. Verify the combination still passes MDD < 40%.
+
+- [ ] **Step 1: Select the strategies that individually improved SR**
+- [ ] **Step 2: Run walk-forward with all improvements combined**
+- [ ] **Step 3: Record final combined SR/MDD. Update progress.md**
+- [ ] **Step 4: If SR > 1.3, lock in the strategy. If not, iterate**
 
 ---
 
