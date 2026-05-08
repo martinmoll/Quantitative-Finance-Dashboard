@@ -137,6 +137,7 @@ if run_clicked:
                 min_samples_leaf=model_params["min_samples_leaf"],
                 l2_regularization=model_params["l2_regularization"],
                 max_iter=model_params["max_iter"],
+                early_stopping=False,
                 random_state=42,
             )
             feature_builder = build_features_ensemble
@@ -144,7 +145,6 @@ if run_clicked:
             estimator = LassoCV(
                 cv=model_params["cv"],
                 max_iter=model_params["max_iter"],
-                random_state=42,
             )
             feature_builder = build_features_linear
 
