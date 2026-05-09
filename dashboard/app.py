@@ -18,11 +18,10 @@ def load_data():
     data_path = Path(__file__).parent.parent / 'Data' / 'alpha_dataset_v2.csv'
     df = pd.read_csv(data_path)
     market = compute_market_monthly(df)
-    spy_oos = market.loc[market.index >= '2015-01', 'spy_ret']
-    return df, market, spy_oos
+    return df, market
 
 
-df, market_monthly, spy_oos = load_data()
+df, market_monthly = load_data()
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +89,43 @@ with st.expander("Model Hyperparameters", expanded=False):
     retrain_every = st.slider(
         "retrain_every", min_value=3, max_value=24, step=3, value=12
     )
+
+
+# ---------------------------------------------------------------------------
+# Display controls
+# ---------------------------------------------------------------------------
+
+all_months = sorted(df['ym'].unique())
+oos_months = [m for m in all_months if m >= '2015-01']
+
+disp_col1, disp_col2, disp_col3 = st.columns(3)
+with disp_col1:
+    display_start = st.select_slider(
+        "Calculation start date", options=oos_months, value=oos_months[0])
+with disp_col2:
+    start_value = st.number_input(
+        "Starting portfolio value ($)", min_value=1, value=10000, step=1000)
+with disp_col3:
+    cash_flow = st.number_input(
+        "Cash flow per period ($)", value=0, step=100,
+        help="Amount added before each rebalance. Negative = withdrawal.")
+
+
+def filter_from(series, start):
+    """Filter a Series or dict to only include months >= start."""
+    if isinstance(series, pd.Series):
+        return series[series.index >= start]
+    return {m: v for m, v in series.items() if m >= start}
+
+
+def compute_wealth(returns, start_val, cf):
+    """Compute wealth path: each period adds cf before applying the return."""
+    values = []
+    bal = start_val
+    for r in returns:
+        bal = (bal + cf) * (1 + r)
+        values.append(bal)
+    return pd.Series(values, index=returns.index)
 
 
 # ---------------------------------------------------------------------------
@@ -232,13 +268,17 @@ if result is not None:
     import plotly.graph_objects as go
 
     PIN_COLORS = ['#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6']
-    rets = result['monthly_returns']
+    rets = filter_from(result['monthly_returns'], display_start)
+    ic_filtered = filter_from(result['ic'], display_start)
+    turnover_filtered = filter_from(result['turnover'], display_start)
+    holdings_filtered = filter_from(result['holdings'], display_start)
+    spy_oos = filter_from(market_monthly.loc[market_monthly.index >= '2015-01', 'spy_ret'], display_start)
 
     # === Row 1: KPI Cards ===
     st.markdown("---")
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
-    perf_stats = compute_perf(rets, ic=result['ic'], turnover=result['turnover'])
+    perf_stats = compute_perf(rets, ic=ic_filtered, turnover=turnover_filtered)
     sr = perf_stats['SR']
     kpi1.metric("Sharpe Ratio", f"{sr:.2f}")
     kpi2.metric("Ann. Return", f"{perf_stats['Ann Return']:.1%}")
@@ -251,8 +291,8 @@ if result is not None:
     chart_col1, chart_col2 = st.columns(2)
 
     with chart_col1:
-        cum = (1 + rets).cumprod()
-        spy_cum = (1 + spy_oos).cumprod()
+        cum = compute_wealth(rets, start_value, cash_flow)
+        spy_cum = compute_wealth(spy_oos, start_value, cash_flow)
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -263,19 +303,23 @@ if result is not None:
             line=dict(color='gray', width=2, dash='dash')))
 
         for i, p in enumerate(st.session_state.pinned):
-            p_cum = (1 + p['result']['monthly_returns']).cumprod()
+            p_rets = filter_from(p['result']['monthly_returns'], display_start)
+            p_cum = compute_wealth(p_rets, start_value, cash_flow)
             fig.add_trace(go.Scatter(
                 x=p_cum.index, y=p_cum.values, name=p['label'],
                 line=dict(color=PIN_COLORS[i % len(PIN_COLORS)], width=1.5)))
 
+        cf_label = f", ${cash_flow:+,}/mo" if cash_flow != 0 else ""
         fig.update_layout(
-            title="Cumulative Wealth", yaxis_title="Growth of $1",
+            title="Cumulative Wealth",
+            yaxis_title=f"Portfolio Value (${start_value:,} start{cf_label})",
+            yaxis_tickprefix="$", yaxis_tickformat=",.0f",
             template="plotly_dark", height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with chart_col2:
-        cum = (1 + rets).cumprod()
-        dd = cum / cum.cummax() - 1
+        wealth = compute_wealth(rets, start_value, cash_flow)
+        dd = wealth / wealth.cummax() - 1
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -284,8 +328,9 @@ if result is not None:
             fillcolor='rgba(239,68,68,0.3)'))
 
         for i, p in enumerate(st.session_state.pinned):
-            p_cum = (1 + p['result']['monthly_returns']).cumprod()
-            p_dd = p_cum / p_cum.cummax() - 1
+            p_rets = filter_from(p['result']['monthly_returns'], display_start)
+            p_wealth = compute_wealth(p_rets, start_value, cash_flow)
+            p_dd = p_wealth / p_wealth.cummax() - 1
             fig.add_trace(go.Scatter(
                 x=p_dd.index, y=p_dd.values, name=p['label'],
                 line=dict(color=PIN_COLORS[i % len(PIN_COLORS)], width=1)))
@@ -294,7 +339,7 @@ if result is not None:
             title="Drawdown", yaxis_title="Drawdown %",
             yaxis_tickformat='.0%', template="plotly_dark",
             height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # === Row 3: Sector Allocation + Holdings Table ===
     st.markdown("---")
@@ -302,7 +347,7 @@ if result is not None:
 
     with comp_col1:
         sector_data = {}
-        for m, held in result['holdings'].items():
+        for m, held in holdings_filtered.items():
             if 'sector' in held.columns:
                 counts = held['sector'].value_counts(normalize=True)
                 sector_data[m] = counts.to_dict()
@@ -318,11 +363,11 @@ if result is not None:
                 title="Sector Allocation Over Time",
                 yaxis_title="Weight", yaxis_tickformat='.0%',
                 template="plotly_dark", height=400, margin=dict(t=40, b=40))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     with comp_col2:
-        last_month = sorted(result['holdings'].keys())[-1]
-        last_h = result['holdings'][last_month].copy()
+        last_month = sorted(holdings_filtered.keys())[-1]
+        last_h = holdings_filtered[last_month].copy()
         display_cols = []
         if 'permno' in last_h.columns:
             display_cols.append('permno')
@@ -339,7 +384,7 @@ if result is not None:
         if 'Actual Return' in show_df.columns:
             show_df['Actual Return'] = (show_df['Actual Return'] * 100).round(2).astype(str) + '%'
         st.markdown(f"**Holdings — {last_month}**")
-        st.dataframe(show_df.reset_index(drop=True), use_container_width=True, height=380)
+        st.dataframe(show_df.reset_index(drop=True), width='stretch', height=380)
 
     # === Row 4: Rolling Sharpe + IC ===
     st.markdown("---")
@@ -355,7 +400,8 @@ if result is not None:
             line=dict(color='#3b82f6', width=2)))
 
         for i, p in enumerate(st.session_state.pinned):
-            p_sr = p['result']['monthly_returns'].rolling(12, min_periods=6).apply(
+            p_rets_sr = filter_from(p['result']['monthly_returns'], display_start)
+            p_sr = p_rets_sr.rolling(12, min_periods=6).apply(
                 lambda x: x.mean() / x.std() * np.sqrt(12) if x.std() > 0 else 0)
             fig.add_trace(go.Scatter(
                 x=p_sr.index, y=p_sr.values, name=p['label'],
@@ -366,10 +412,10 @@ if result is not None:
             title="Rolling 12-Month Sharpe Ratio",
             yaxis_title="Sharpe Ratio", template="plotly_dark",
             height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with risk_col2:
-        ic = result['ic'].dropna()
+        ic = ic_filtered.dropna()
         ic_rolling = ic.rolling(12, min_periods=6).mean()
 
         fig = go.Figure()
@@ -388,7 +434,7 @@ if result is not None:
             title="Information Coefficient",
             yaxis_title="Spearman IC", template="plotly_dark",
             height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # === Row 5: Monthly Returns Heatmap + Turnover ===
     st.markdown("---")
@@ -417,10 +463,10 @@ if result is not None:
         fig.update_layout(
             title="Monthly Returns Heatmap (%)",
             template="plotly_dark", height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with diag_col2:
-        to = result['turnover'].dropna()
+        to = turnover_filtered.dropna()
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=to.index, y=to.values, name="Monthly Turnover",
@@ -432,7 +478,7 @@ if result is not None:
             title="Monthly Turnover", yaxis_title="Turnover",
             yaxis_tickformat='.0%', template="plotly_dark",
             height=400, margin=dict(t=40, b=40))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     # === Row 6: Comparison Table (only when configs are pinned) ===
     if st.session_state.pinned:
@@ -440,13 +486,14 @@ if result is not None:
         st.markdown("### Strategy Comparison")
 
         comp_rows = []
-        current_perf = compute_perf(rets, "Current", ic=result['ic'], turnover=result['turnover'])
+        current_perf = compute_perf(rets, "Current", ic=ic_filtered, turnover=turnover_filtered)
         comp_rows.append(current_perf)
 
         for p in st.session_state.pinned:
-            p_perf = compute_perf(
-                p['result']['monthly_returns'], p['label'],
-                ic=p['result']['ic'], turnover=p['result']['turnover'])
+            p_rets_c = filter_from(p['result']['monthly_returns'], display_start)
+            p_ic_c = filter_from(p['result']['ic'], display_start)
+            p_to_c = filter_from(p['result']['turnover'], display_start)
+            p_perf = compute_perf(p_rets_c, p['label'], ic=p_ic_c, turnover=p_to_c)
             comp_rows.append(p_perf)
 
         comp_df = pd.DataFrame(comp_rows).set_index('Strategy')
@@ -457,7 +504,7 @@ if result is not None:
         comp_df['Total Return'] = comp_df['Total Return'].map('{:.0%}'.format)
         comp_df['Mean IC'] = comp_df['Mean IC'].map(lambda x: f'{x:.4f}' if pd.notna(x) else '-')
         comp_df['Mean Turnover'] = comp_df['Mean Turnover'].map(lambda x: f'{x:.1%}' if pd.notna(x) else '-')
-        st.dataframe(comp_df, use_container_width=True)
+        st.dataframe(comp_df, width='stretch')
 
 else:
     st.info("Click **Run Backtest** to see results.")
