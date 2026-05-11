@@ -4,3 +4,9 @@ quant_cheatsheet.md
 
 # Large data files
 Data/alpha_dataset_v2.csv
+
+# Dashboard cache
+dashboard/.cache/
+
+# Superpowers brainstorm sessions
+.superpowers/

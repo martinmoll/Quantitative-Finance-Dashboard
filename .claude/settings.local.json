@@ -3,7 +3,23 @@
     "allow": [
       "Bash(python -c \"import json,sys; nb=json.load\\(sys.stdin\\); cell=nb[''''cells''''][10]; [print\\(o.get\\(''''text'''',''''''''\\)\\) if isinstance\\(o.get\\(''''text'''',''''''''\\),str\\) else print\\(''''''''.join\\(o.get\\(''''text'''',[]\\)\\)\\) for o in cell.get\\(''''outputs'''',[]\\)]\")",
       "Bash(python -c \":*)",
-      "Bash(grep -v '^$')"
+      "Bash(grep -v '^$')",
+      "Bash(bash *)",
+      "Bash(not exist *)",
+      "PowerShell(New-Item *)",
+      "Bash(git commit --amend -m 'Add design spec for alpha strategy dashboard *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Add v2 live data \\(yfinance\\) section to dashboard spec *)",
+      "Bash(git commit -m 'Add implementation plan for alpha strategy dashboard *)",
+      "mcp__ide__executeCode",
+      "Bash(git commit *)",
+      "Bash(python -c \"import json; nb=json.load\\(open\\('MartinMoellenhus_Assignment2.ipynb'\\)\\); [print\\(f'Cell {i}:\\\\n' + ''.join\\(c['source']\\) + '\\\\n---'\\) for i,c in enumerate\\(nb['cells']\\) if c['cell_type']=='code' and any\\(kw in ''.join\\(c['source']\\) for kw in ['OOS_START','TRAIN_TARGET','EVAL_TARGET','spy_ret','Mkt_RF','compute_perf','run_model','market_monthly']\\)]\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"from engine import run_predictions, build_portfolio, compute_market_monthly, compute_perf; print\\('OK'\\)\")",
+      "Bash(Remove-Item -Recurse -Force \"C:\\\\Users\\\\marti\\\\OneDrive\\\\Desktop\\\\Coding projects\\\\Alpha Model\\\\dashboard\\\\.cache\" -ErrorAction SilentlyContinue)",
+      "Bash(Write-Output \"Cache cleaned\")",
+      "Bash(python -c \"import streamlit; import plotly; print\\('imports ok'\\)\")",
+      "Bash(streamlit run *)"
     ]
   }
 }
