@@ -28,19 +28,29 @@ df, market_monthly = load_data()
 # Top control bar (always visible)
 # ---------------------------------------------------------------------------
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     model_type = st.selectbox("Model", ["HGB", "Lasso"])
 
 with col2:
-    K = st.slider("K (stocks)", min_value=5, max_value=50, step=5, value=10)
+    strategy_type = st.selectbox("Strategy", ["Long Only", "Long-Short"])
 
 with col3:
-    vol_tilt = st.slider("Vol tilt", min_value=0.0, max_value=0.50, step=0.01, value=0.05)
+    K = st.slider("K (stocks)", min_value=5, max_value=50, step=5, value=10)
 
 with col4:
+    vol_tilt = st.slider("Vol tilt", min_value=0.0, max_value=0.50, step=0.01, value=0.05)
+
+with col5:
     regime_lookback = st.slider("Regime lookback", min_value=0, max_value=12, value=6)
+
+strategy_key = "long_short" if strategy_type == "Long-Short" else "long_only"
+
+if strategy_key == "long_short":
+    K_short = st.slider("K short (stocks)", min_value=5, max_value=50, step=5, value=K)
+else:
+    K_short = K
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +209,7 @@ if run_clicked:
         cache.save_predictions(pred_key, predictions)
 
     # --- Step 2: portfolio cache ---
-    port_key = cache.portfolio_key(pred_key, K, vol_tilt, regime_lookback)
+    port_key = cache.portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_key, K_short)
     portfolio = cache.get_portfolio(port_key)
 
     if portfolio is None:
@@ -209,6 +219,8 @@ if run_clicked:
             vol_tilt=vol_tilt,
             regime_lookback=regime_lookback,
             market_monthly=market_monthly,
+            strategy_type=strategy_key,
+            K_short=K_short,
         )
         cache.save_portfolio(port_key, portfolio)
 
@@ -221,6 +233,8 @@ if run_clicked:
         "K": K,
         "vol_tilt": vol_tilt,
         "regime_lookback": regime_lookback,
+        "strategy_type": strategy_key,
+        "K_short": K_short,
     }
 
 
@@ -235,7 +249,12 @@ if pin_clicked:
         mt = params["model_type"]
         k_val = params["K"]
         vt_val = params["vol_tilt"]
-        label = f"{mt} K={k_val} vt={vt_val}"
+        strat = params.get("strategy_type", "long_only")
+        if strat == "long_short":
+            ks_val = params.get("K_short", k_val)
+            label = f"{mt} L/S K={k_val}/{ks_val} vt={vt_val}"
+        else:
+            label = f"{mt} K={k_val} vt={vt_val}"
         st.session_state.pinned.append(
             {"label": label, "result": result, "params": params}
         )
@@ -369,16 +388,24 @@ if result is not None:
         last_month = sorted(holdings_filtered.keys())[-1]
         last_h = holdings_filtered[last_month].copy()
         display_cols = []
+        col_labels = []
+        if 'side' in last_h.columns:
+            display_cols.append('side')
+            col_labels.append('Side')
         if 'permno' in last_h.columns:
             display_cols.append('permno')
+            col_labels.append('Permno')
         if 'sector' in last_h.columns:
             display_cols.append('sector')
+            col_labels.append('Sector')
         if 'pred' in last_h.columns:
             display_cols.append('pred')
+            col_labels.append('Predicted')
         if 'y_raw' in last_h.columns:
             display_cols.append('y_raw')
+            col_labels.append('Actual Return')
         show_df = last_h[display_cols].copy()
-        show_df.columns = ['Permno', 'Sector', 'Predicted', 'Actual Return'][:len(display_cols)]
+        show_df.columns = col_labels
         if 'Predicted' in show_df.columns:
             show_df['Predicted'] = show_df['Predicted'].round(4)
         if 'Actual Return' in show_df.columns:
