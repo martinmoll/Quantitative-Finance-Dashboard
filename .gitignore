@@ -10,3 +10,6 @@ dashboard/.cache/
 
 # Superpowers brainstorm sessions
 .superpowers/
+
+# Jupyter notebooks (kept locally, not tracked)
+Code/*.ipynb
