@@ -7,7 +7,7 @@ A Streamlit-based interactive backtesting dashboard for ML-driven equity strateg
 ## Quick Start
 
 ```bash
-pip install streamlit pandas numpy scikit-learn matplotlib seaborn
+pip install streamlit plotly pandas numpy scipy scikit-learn
 cd dashboard
 streamlit run app.py
 ```
@@ -143,16 +143,16 @@ Key design choices:
 |---|---|---|
 | Model | HGB, Lasso | HGB |
 | Strategy | Long-only, Long-short | Long-only |
-| K (long holdings) | 5 – 100 | 30 |
-| K_short (short holdings) | 5 – 100 | 30 |
-| Vol tilt | 0.00 – 0.30 | 0.05 |
-| Regime lookback (months) | 1 – 12 | 3 |
+| K (long holdings) | 5 – 50 | 10 |
+| K_short (short holdings) | 5 – 50 | 10 |
+| Vol tilt | 0.00 – 0.50 | 0.05 |
+| Regime lookback (months) | 0 – 12 | 6 |
 
 Additional expandable sections provide:
 
-- **Hyperparameter controls:** HGB `max_iter`, `max_depth`, `learning_rate`, `min_samples_leaf`; Lasso `cv` folds
-- **Display controls:** Benchmark overlay, chart date range, return/drawdown toggle
-- **Pin & compare:** Save the current run's equity curve and metrics alongside a new configuration for direct comparison
+- **Hyperparameter controls:** HGB `max_iter`, `max_depth`, `learning_rate`, `min_samples_leaf`, `l2_regularization`; Lasso `cv` folds, `max_iter`
+- **Display controls:** Calculation start date, starting portfolio value, cash flow per period
+- **Pin & compare:** Save current config's results, overlay on charts, compare up to 4 configs side-by-side
 
 
 
@@ -176,18 +176,18 @@ At vt=0.05, return drops modestly (24.2% to 22.0%) while volatility drops propor
 ```
 Alpha Model/
   dashboard/
-    app.py                    # Streamlit dashboard entry point
-    controls.py               # Sidebar control definitions
-    charts.py                 # Chart rendering functions
-    backtest_runner.py        # Walk-forward backtest engine
+    app.py              # Streamlit entry point — layout, controls, chart rendering
+    engine.py           # Walk-forward prediction engine + portfolio construction
+    features.py         # Feature engineering (Tier 1 and Tier 2)
+    cache_manager.py    # Two-tier disk caching (predictions + portfolios)
   Code/
-    AlphaChallenge.ipynb      # Research notebook (feature engineering, model experiments)
+    *.ipynb             # Research notebooks (not tracked in git)
   Data/
-    alpha_dataset_v2.csv      # Dataset (not tracked in git)
+    alpha_dataset_v2.csv  # Dataset (not tracked in git)
   docs/
-    mdd_reduction_log.md      # Detailed log of volatility tilt experiments
+    archive/            # Historical experiment logs
     superpowers/
-      specs/                  # Design specifications
-      plans/                  # Implementation plans
-  README.md                   # This file
+      specs/            # Design specifications
+      plans/            # Implementation plans
+  README.md
 ```
