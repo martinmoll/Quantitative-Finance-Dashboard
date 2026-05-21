@@ -141,6 +141,8 @@ def build_portfolio(
     vol_tilt: float = 0.0,
     regime_lookback: int = 6,
     market_monthly: pd.DataFrame | None = None,
+    strategy_type: str = "long_only",
+    K_short: int = 10,
 ) -> dict:
     """Apply portfolio parameters to cached predictions and compute returns.
 
@@ -162,12 +164,19 @@ def build_portfolio(
     market_monthly : pd.DataFrame or None
         Output of compute_market_monthly().  Required for regime filtering.
         If None, regime filter is disabled.
+    strategy_type : str
+        "long_only" (default) selects top K stocks.
+        "long_short" selects top K as long leg and bottom K_short as short leg.
+    K_short : int
+        Number of stocks in the short leg (only used when strategy_type="long_short").
 
     Returns
     -------
     dict with keys:
         monthly_returns : pd.Series   — monthly portfolio returns (OOS)
         holdings        : dict        — {month: DataFrame of held stocks}
+                          In long-short mode each DataFrame includes a 'side' column
+                          ('long' or 'short').
         ic              : pd.Series   — monthly Spearman IC (after vol_tilt)
         turnover        : pd.Series   — monthly one-way turnover
     """
@@ -198,7 +207,8 @@ def build_portfolio(
             df_m['pred'] = df_m['pred'] - vol_tilt * df_m['vol_12m_xs'].fillna(0.0)
 
         # ---- Need enough stocks ----
-        if len(df_m) < 2 * K:
+        min_required = K + K_short if strategy_type == "long_short" else 2 * K
+        if len(df_m) < min_required:
             prev_weights = None  # portfolio doesn't exist this month
             continue
 
@@ -209,20 +219,33 @@ def build_portfolio(
         else:
             ic_vals[m] = np.nan
 
-        # ---- Select top-K ----
+        # ---- Select stocks ----
         top = df_m.nlargest(K, 'pred')
-        port_ret = top[EVAL_TARGET].mean()
+
+        if strategy_type == "long_short":
+            bottom = df_m.nsmallest(K_short, 'pred')
+            port_ret = top[EVAL_TARGET].mean() - bottom[EVAL_TARGET].mean()
+            top = top.copy()
+            bottom = bottom.copy()
+            top['side'] = 'long'
+            bottom['side'] = 'short'
+            held = pd.concat([top, bottom], ignore_index=True)
+        else:
+            port_ret = top[EVAL_TARGET].mean()
+            held = top
 
         # ---- Regime filter — go to cash when trailing SPY is negative ----
         if regime_on is not None and m in regime_on.index and not regime_on[m]:
             port_ret = 0.0
 
         monthly_returns[m] = port_ret
-        holdings[m] = top
+        holdings[m] = held
 
         # ---- Turnover (one-way) ----
         curr_weights = pd.Series(0.0, index=df_m['permno'].values)
         curr_weights[top['permno'].values] = 1.0 / K
+        if strategy_type == "long_short":
+            curr_weights[bottom['permno'].values] = -1.0 / K_short
 
         if prev_weights is not None:
             aligned_curr, aligned_prev = curr_weights.align(prev_weights, fill_value=0.0)
