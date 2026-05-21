@@ -27,12 +27,14 @@ def prediction_key(model_type, model_params, retrain_every):
     })
 
 
-def portfolio_key(pred_key, K, vol_tilt, regime_lookback):
+def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_only", K_short=10):
     return _make_key({
         'pred_key': pred_key,
         'K': K,
         'vol_tilt': vol_tilt,
         'regime_lookback': regime_lookback,
+        'strategy_type': strategy_type,
+        'K_short': K_short,
     })
 
 
