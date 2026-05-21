@@ -11,5 +11,8 @@ dashboard/.cache/
 # Superpowers brainstorm sessions
 .superpowers/
 
+# Python bytecode
+__pycache__/
+
 # Jupyter notebooks (kept locally, not tracked)
 Code/*.ipynb
