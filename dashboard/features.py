@@ -161,3 +161,98 @@ def build_features_ensemble(df_slice):
     engineered = _build_engineered_features(df_slice)
     feat = pd.concat([feat, engineered], axis=1)
     return feat.fillna(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Feature metadata and precomputation (added for multipage dashboard)
+# ---------------------------------------------------------------------------
+
+FEATURE_GROUPS = {
+    "momentum": [
+        "ret_1_xs", "ret_2_12_xs", "ret_2_6_xs", "ret_13_36_xs",
+        "prc_52w_high_xs", "momentum_composite", "reversal_mom_combo",
+    ],
+    "value": [
+        "bm_xs", "ep_xs", "cfp_xs", "sp_xs", "value_composite",
+    ],
+    "quality": [
+        "gpa_xs", "roe_xs", "roa_xs", "earn_quality_xs", "cfo_at_xs",
+        "quality_composite",
+    ],
+    "size": ["log_me_xs"],
+    "volatility": [
+        "vol_12m_xs", "ivol_xs", "beta_xs",
+    ],
+    "technical": [
+        "rsi_14_xs", "macd_hist_xs", "bb_position_xs", "roc_3_xs", "roc_6_xs",
+        "technical_composite",
+    ],
+    "analyst": [
+        "revision_xs", "dispersion_xs", "beat_xs",
+        "revision_ratio_xs", "rec_chg_xs", "n_analysts_xs",
+        "analyst_composite",
+    ],
+    "earnings": [
+        "sue_xs", "sue_q_xs", "rev_surp_xs", "earn_growth_yoy_xs",
+        "earnings_composite",
+    ],
+    "interactions": [
+        "mom_x_quality", "mom_x_roe", "val_x_lowvol", "ep_x_lowvol",
+        "sue_x_lowdisp", "sue_x_revision", "mom_x_lowivol", "bm_x_roe",
+        "ep_x_gpa", "earn_x_mom", "quality_x_value", "earn_x_lowvol",
+        "mom_x_size_xs", "val_x_prof_xs", "mom_x_vol_xs",
+    ],
+    "relative": [
+        "sue_vs_peer", "revision_vs_peer",
+        "ret_vs_sector_xs", "bm_vs_sector_xs", "ret_vs_ind_xs", "bm_vs_size_xs",
+    ],
+    "nonlinear": [
+        "ret_2_12_xs_sq", "ret_1_xs_sq", "sue_xs_sq", "bm_xs_sq", "revision_xs_sq",
+    ],
+}
+
+
+def get_tier_defaults(tier: int) -> list[str]:
+    """Return the default feature column list for a given tier.
+
+    Tier 1 (~52 features): conservative set for linear models.
+    Tier 2 (~118+ features): all _xs columns + engineered for tree models.
+    """
+    if tier == 1:
+        core = [
+            "ret_1_xs", "ret_2_12_xs", "ret_2_6_xs",
+            "bm_xs", "ep_xs", "cfp_xs", "sp_xs",
+            "gpa_xs", "roe_xs", "roa_xs",
+            "vol_12m_xs", "ivol_xs", "beta_xs",
+            "log_me_xs",
+            "sue_xs", "revision_xs", "beat_xs",
+            "turnover_xs", "illiq_12m_xs",
+            "mom_x_size_xs", "val_x_prof_xs", "mom_x_vol_xs",
+            "ret_vs_sector_xs", "bm_vs_sector_xs", "ret_vs_ind_xs",
+            "bm_vs_size_xs",
+        ]
+        engineered = []
+        for group in FEATURE_GROUPS.values():
+            for f in group:
+                if not f.endswith("_xs"):
+                    engineered.append(f)
+        return core + sorted(set(engineered))
+
+    # Tier 2: all _xs columns + all engineered
+    all_features = []
+    for group in FEATURE_GROUPS.values():
+        all_features.extend(group)
+    return sorted(set(all_features))
+
+
+def precompute_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add all engineered feature columns to the DataFrame.
+
+    Call once after loading the dataset. Subsequent operations can select
+    features by column name without re-computing.
+    """
+    result = df.copy()
+    engineered = _build_engineered_features(df)
+    for col in engineered.columns:
+        result[col] = engineered[col]
+    return result
