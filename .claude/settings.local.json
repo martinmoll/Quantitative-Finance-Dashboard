@@ -19,7 +19,14 @@
       "Bash(Remove-Item -Recurse -Force \"C:\\\\Users\\\\marti\\\\OneDrive\\\\Desktop\\\\Coding projects\\\\Alpha Model\\\\dashboard\\\\.cache\" -ErrorAction SilentlyContinue)",
       "Bash(Write-Output \"Cache cleaned\")",
       "Bash(python -c \"import streamlit; import plotly; print\\('imports ok'\\)\")",
-      "Bash(streamlit run *)"
+      "Bash(streamlit run *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/app.py'\\).read\\(\\)\\); print\\('app.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/engine.py'\\).read\\(\\)\\); print\\('engine.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/cache_manager.py'\\).read\\(\\)\\); print\\('cache_manager.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('app.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/engine.py', encoding='utf-8'\\).read\\(\\)\\); print\\('engine.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('dashboard/cache_manager.py', encoding='utf-8'\\).read\\(\\)\\); print\\('cache_manager.py: OK'\\)\")",
+      "Bash(git rm *)"
     ]
   }
 }
