@@ -100,7 +100,7 @@ Composites average only columns that actually exist in the data. An earlier vers
 | Lasso | `LassoCV` (5-fold CV) | Tier 1 (~52) | L1 regularization, automatic alpha selection |
 | HGB | `HistGradientBoostingRegressor` | Tier 2 (~118) | `max_iter=500`, `max_depth=2`, `lr=0.05`, `min_samples_leaf=500`, `l2_reg=0.1` |
 
-HGB settings are deliberately conservative: very shallow trees (depth 2), large leaf sizes (500), and L2 regularization. Overfitting is the dominant failure mode in financial prediction.
+HGB settings are deliberately conservative: very shallow trees (depth 2), large leaf sizes (500), and L2 regularization. Overfitting is the dominant failure mode in financial prediction due to noiiiiiiiiiiiise.
 
 
 
