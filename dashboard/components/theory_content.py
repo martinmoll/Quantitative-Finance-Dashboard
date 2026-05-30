@@ -251,6 +251,62 @@ The full pipeline from raw data to monitored portfolio:
 Each step has failure modes. The most dangerous is **look-ahead bias** in step 3 — accidentally using future information during training. The walk-forward protocol prevents this.
 """,
 
+    "jensens_alpha": r"""
+**Jensen's Alpha: Do You Actually Have Skill?**
+
+A portfolio can beat the market simply by taking more risk — holding high-beta stocks,
+tilting toward small-caps, or loading on value. That's not alpha. That's factor exposure
+you could get cheaper with an ETF.
+
+**The FF5 regression strips out known risk premiums:**
+
+$$r_p - r_f = \alpha + \beta_M (r_m - r_f) + \beta_S \cdot SMB + \beta_H \cdot HML + \beta_R \cdot RMW + \beta_C \cdot CMA + \epsilon$$
+
+Whatever return is left after removing all five factor exposures is **Jensen's alpha** ($\alpha$) —
+the intercept of the regression. It represents the monthly return your portfolio earns that
+*no combination of passive factor exposures can explain*.
+
+**How to read the results:**
+
+| Metric | What it means | What's good |
+|--------|--------------|-------------|
+| Annualized Alpha | $\alpha_{monthly} \times 12$ — your yearly excess return beyond factors | Positive |
+| t-statistic | Signal-to-noise ratio of alpha. Accounts for sample size | > 2.0 |
+| p-value | Probability that alpha = 0 and you got lucky | < 0.05 |
+| R-squared | How much of your returns are explained by factor exposures | Context-dependent |
+
+**The four scenarios:**
+
+1. **Positive alpha, significant (t > 2)** — Genuine skill. Your model finds something
+   the five factors don't capture. This is rare and valuable.
+
+2. **Positive alpha, not significant (t < 2)** — Could be skill, could be luck. You don't have
+   enough months, or the alpha is too noisy, to tell. More data or a more consistent strategy
+   would help. Don't trust this alpha in production.
+
+3. **Near-zero alpha, high R-squared** — Your portfolio is a factor portfolio in disguise.
+   The returns come entirely from tilting toward known premiums (value, momentum, etc.).
+   This isn't necessarily bad — you're harvesting factor premiums efficiently — but you're
+   not adding skill beyond what a smart factor ETF could replicate.
+
+4. **Negative alpha** — After adjusting for factor risk, you're underperforming.
+   The factor bets in your portfolio would have done better without your stock selection.
+
+**Common pitfalls:**
+
+- **Overfitting alpha**: In-sample alpha from backtests is always inflated.
+   Walk-forward (out-of-sample) alpha is what matters.
+- **Alpha vs. Beta confusion**: A portfolio with 1.3 market beta and 15% return in a 12% market year
+   looks great — but the expected return was $1.3 \times 12\% = 15.6\%$. The alpha is actually *negative*.
+- **Survivorship bias**: If your universe only includes stocks that survived to today, alpha is
+   inflated because you're excluding the ones that went to zero.
+- **HAC standard errors**: We use Newey-West (HAC) standard errors because monthly returns are
+   heteroskedastic and can be autocorrelated. Classical standard errors would overstate significance.
+
+**A practical benchmark:** In academic studies, monthly alpha of 0.3-0.5% (3.6-6.0%/year) with
+t-stat > 2 is considered strong. Most published strategies lose significance out of sample.
+""",
+
     "factor_investing_foundations": r"""
 **Why Do Factors Earn Premiums?**
 

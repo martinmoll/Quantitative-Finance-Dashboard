@@ -7,6 +7,7 @@ import numpy as np
 from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
 )
+from core.risk import factor_alpha
 from components.charts import (
     cumulative_wealth_chart, drawdown_chart, monthly_heatmap,
     rolling_metric_chart, bar_chart, STYLE, PIN_COLORS,
@@ -46,13 +47,25 @@ turnover = turnover[turnover.index >= display_start]
 
 # --- KPI Cards ---
 perf = compute_performance_metrics(rets)
-metric_row([
+ff5 = st.session_state.get("ff5_factors")
+alpha_res = factor_alpha(rets, ff5) if ff5 is not None else None
+
+kpi_cards = [
     {"label": "Sharpe Ratio", "value": f"{perf['SR']:.2f}"},
     {"label": "Ann. Return", "value": f"{perf['Ann Return']:.1%}"},
     {"label": "Ann. Volatility", "value": f"{perf['Ann Vol']:.1%}"},
     {"label": "Max Drawdown", "value": f"{perf['MDD']:.1%}"},
     {"label": "Calmar", "value": f"{perf['Calmar']:.2f}" if not np.isnan(perf['Calmar']) else "N/A"},
-])
+]
+if alpha_res is not None:
+    sig = "*" if alpha_res["p_value"] < 0.05 else ""
+    kpi_cards.append(
+        {"label": f"FF5 Alpha{sig}", "value": f"{alpha_res['annual_alpha']:.2%}"}
+    )
+metric_row(kpi_cards)
+
+if alpha_res is not None:
+    theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
 
 # --- Cumulative Wealth + Drawdown ---
 st.markdown("---")

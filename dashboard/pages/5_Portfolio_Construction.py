@@ -7,7 +7,7 @@ import numpy as np
 from core.portfolio import build_portfolio_series
 from core.diagnostics import compute_performance_metrics
 from core.risk import (
-    risk_contribution, factor_exposure, rolling_factor_exposure,
+    risk_contribution, factor_exposure, factor_alpha, rolling_factor_exposure,
     transaction_cost_drag,
 )
 from components.charts import (
@@ -96,8 +96,8 @@ if len(selected_methods) >= 1:
 # --- Factor Exposure ---
 if ff5 is not None:
     st.markdown("---")
-    st.header("Factor Exposure")
-    theory_section("Turnover and Transaction Costs", "turnover_and_costs")
+    st.header("Factor Exposure & Alpha")
+    theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
 
     rets = result["monthly_returns"]
     exposure = factor_exposure(rets, ff5)
@@ -107,6 +107,46 @@ if ff5 is not None:
             with exp_cols[i]:
                 color = "normal" if abs(beta) < 0.10 else "inverse"
                 st.metric(factor, f"{beta:.3f}", delta_color=color)
+
+    alpha_result = factor_alpha(rets, ff5)
+    if alpha_result is not None:
+        st.markdown("#### Jensen's Alpha")
+        a1, a2, a3, a4 = st.columns(4)
+        with a1:
+            ann_alpha = alpha_result["annual_alpha"]
+            st.metric("Annualized Alpha", f"{ann_alpha:.2%}")
+        with a2:
+            t = alpha_result["t_stat"]
+            st.metric("t-statistic", f"{t:.2f}")
+        with a3:
+            p = alpha_result["p_value"]
+            st.metric("p-value", f"{p:.4f}")
+        with a4:
+            st.metric("R-squared", f"{alpha_result['r_squared']:.3f}")
+
+        if alpha_result["p_value"] < 0.05 and alpha_result["annual_alpha"] > 0:
+            st.success(
+                f"Statistically significant positive alpha of "
+                f"{ann_alpha:.2%}/year (t={t:.2f}, p={p:.4f}, "
+                f"n={alpha_result['n_months']} months). "
+                f"The portfolio generates returns beyond what its factor exposures explain."
+            )
+        elif alpha_result["annual_alpha"] > 0:
+            st.warning(
+                f"Positive alpha of {ann_alpha:.2%}/year but not statistically "
+                f"significant (t={t:.2f}, p={p:.4f}). Need t > 2.0 (p < 0.05) "
+                f"to confidently claim true alpha."
+            )
+        elif alpha_result["p_value"] < 0.05:
+            st.error(
+                f"Statistically significant negative alpha of {ann_alpha:.2%}/year. "
+                f"Factor exposures alone would have performed better."
+            )
+        else:
+            st.info(
+                f"Alpha of {ann_alpha:.2%}/year is not statistically different from zero "
+                f"(t={t:.2f}, p={p:.4f})."
+            )
 
     rolling_exp = rolling_factor_exposure(rets, ff5, window=24)
     if not rolling_exp.dropna(how="all").empty:

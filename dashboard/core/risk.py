@@ -36,6 +36,34 @@ def factor_exposure(
     return model.params.drop("const", errors="ignore")
 
 
+def factor_alpha(
+    portfolio_returns: pd.Series,
+    ff5_factors: pd.DataFrame,
+) -> dict | None:
+    """Run FF5 regression and return alpha (intercept) with statistical tests."""
+    factor_cols = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
+    available = [c for c in factor_cols if c in ff5_factors.columns]
+    common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
+
+    if len(common) < 10:
+        return None
+
+    y = portfolio_returns.loc[common]
+    X = sm.add_constant(ff5_factors.loc[common, available])
+    model = sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
+
+    monthly_alpha = model.params["const"]
+    return {
+        "monthly_alpha": float(monthly_alpha),
+        "annual_alpha": float(monthly_alpha * 12),
+        "t_stat": float(model.tvalues["const"]),
+        "p_value": float(model.pvalues["const"]),
+        "r_squared": float(model.rsquared),
+        "r_squared_adj": float(model.rsquared_adj),
+        "n_months": len(common),
+    }
+
+
 def rolling_factor_exposure(
     portfolio_returns: pd.Series,
     ff5_factors: pd.DataFrame,
