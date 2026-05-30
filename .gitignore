@@ -16,3 +16,6 @@ __pycache__/
 
 # Jupyter notebooks (kept locally, not tracked)
 Code/*.ipynb
+
+# Pipeline cache
+pipeline/cache/
