@@ -11,13 +11,21 @@ FF5_PATH = DATA_DIR / "ff5_factors.csv"
 
 
 def load_dataset(path: str | Path | None = None) -> pd.DataFrame:
-    """Load and validate the alpha dataset."""
+    """Load and validate the alpha dataset. Tries Parquet first, then CSV."""
     if path is None:
-        path = DATA_DIR / "alpha_dataset_v2.csv"
+        parquet_path = DATA_DIR / "alpha_dataset_v2.parquet"
+        csv_path = DATA_DIR / "alpha_dataset_v2.csv"
+        if parquet_path.exists():
+            path = parquet_path
+        else:
+            path = csv_path
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found at {path}")
-    df = pd.read_csv(path)
+    if path.suffix == ".parquet":
+        df = pd.read_parquet(path)
+    else:
+        df = pd.read_csv(path)
     required = {"ym", "permno", "y_xs", "y_raw", "Mkt_RF", "rf_ff"}
     missing = required - set(df.columns)
     if missing:

@@ -23,8 +23,7 @@ st.set_page_config(
 
 @st.cache_data
 def _load_all_data():
-    data_path = Path(__file__).parent.parent / "Data" / "alpha_dataset_v2.csv"
-    df = load_dataset(data_path)
+    df = load_dataset()
 
     from features import precompute_features
     df = precompute_features(df)

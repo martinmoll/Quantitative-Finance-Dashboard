@@ -1,0 +1,128 @@
+"""Data Pipeline page — manual data refresh from live sources."""
+
+import sys
+import os
+import streamlit as st
+from pathlib import Path
+
+# Add project root to path so pipeline package is importable
+project_root = Path(__file__).parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+st.header("Data Pipeline")
+st.markdown("Fetch the latest market data and update the dataset.")
+
+df = st.session_state.get("df")
+if df is not None:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Stocks", f"{df['permno'].nunique():,}")
+    with col2:
+        st.metric("Months", f"{df['ym'].nunique()}")
+    with col3:
+        st.metric("Date Range", f"{df['ym'].min()} to {df['ym'].max()}")
+    st.markdown("---")
+
+fred_key = os.environ.get("FRED_API_KEY", "")
+if not fred_key:
+    fred_key = st.text_input(
+        "FRED API Key (optional — needed for macro features)",
+        type="password",
+        help="Get a free key at https://fred.stlouisfed.org/docs/api/api_key.html",
+    )
+    if fred_key:
+        os.environ["FRED_API_KEY"] = fred_key
+
+st.markdown("---")
+st.markdown(
+    "**Data sources:** Yahoo Finance (prices, fundamentals), "
+    "Ken French Library (FF5 factors), FRED (VIX, yield curve, EPU)"
+)
+st.markdown(
+    "**Estimated time:** 10-20 minutes for ~500 S&P 500 stocks"
+)
+
+if st.button("Refresh Data", type="primary", use_container_width=True):
+    st.markdown("---")
+    status = st.status("Running pipeline...", expanded=True)
+    progress_bar = st.progress(0)
+    log_container = st.empty()
+    logs = []
+
+    stages = {
+        "universe": 0.05,
+        "prices": 0.30,
+        "fundamentals": 0.60,
+        "factors": 0.70,
+        "macro": 0.75,
+        "features": 0.90,
+        "assembly": 1.0,
+    }
+
+    def progress_callback(stage, detail=""):
+        pct = stages.get(stage, 0)
+        progress_bar.progress(pct)
+        msg = f"**{stage.title()}**: {detail}"
+        logs.append(msg)
+        status.update(label=f"Running pipeline... ({stage})")
+        log_container.markdown("\n\n".join(logs[-10:]))
+
+    try:
+        from pipeline import run_pipeline
+
+        result = run_pipeline(
+            fred_api_key=fred_key or None,
+            progress_callback=progress_callback,
+        )
+
+        progress_bar.progress(1.0)
+
+        if result.success:
+            status.update(label="Pipeline complete!", state="complete")
+            st.success(
+                f"Added {len(result.months_added)} month(s): "
+                f"{', '.join(result.months_added[:5])}"
+                f"{'...' if len(result.months_added) > 5 else ''}. "
+                f"{result.tickers_fetched} tickers fetched. "
+                f"Dataset now has {result.total_rows:,} rows."
+            )
+            if result.tickers_failed:
+                st.warning(
+                    f"{len(result.tickers_failed)} tickers failed: "
+                    f"{', '.join(result.tickers_failed[:10])}"
+                    f"{'...' if len(result.tickers_failed) > 10 else ''}"
+                )
+
+            from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
+            from features import precompute_features
+
+            new_df = load_dataset()
+            new_df = precompute_features(new_df)
+            st.session_state.df = new_df
+            st.session_state.market_monthly = compute_market_monthly(new_df)
+
+            ff5_path = Path(__file__).parent.parent.parent / "Data" / "ff5_factors.csv"
+            if ff5_path.exists():
+                st.session_state.ff5_factors = load_ff5_factors(ff5_path)
+
+            st.cache_data.clear()
+            st.info("Session data reloaded. Navigate to other pages to use updated data.")
+        else:
+            status.update(label="Pipeline failed", state="error")
+            st.error(f"Pipeline failed: {result.error}")
+            if result.tickers_failed:
+                st.warning(
+                    f"Failed tickers: {', '.join(result.tickers_failed[:20])}"
+                )
+
+    except Exception as e:
+        status.update(label="Pipeline error", state="error")
+        st.error(f"Unexpected error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+else:
+    st.info(
+        "Click **Refresh Data** to fetch the latest market data from Yahoo Finance, "
+        "FRED, and Ken French's data library. This may take 10-20 minutes."
+    )
