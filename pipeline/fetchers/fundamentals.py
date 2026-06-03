@@ -27,6 +27,11 @@ def _fetch_one_ticker(ticker: str) -> dict | None:
             shares = info.get("sharesOutstanding", None)
             market_cap = info.get("marketCap", None)
 
+            try:
+                divs = t.dividends
+            except Exception:
+                divs = pd.Series(dtype=float)
+
             return {
                 "income": income,
                 "balance": balance,
@@ -35,6 +40,7 @@ def _fetch_one_ticker(ticker: str) -> dict | None:
                 "industry": industry,
                 "shares_outstanding": shares,
                 "market_cap": market_cap,
+                "dividends": divs,
             }
         except Exception as e:
             logger.warning(f"{ticker} attempt {attempt + 1} failed: {e}")

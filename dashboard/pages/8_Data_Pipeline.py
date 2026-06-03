@@ -24,6 +24,12 @@ if df is not None:
         st.metric("Date Range", f"{df['ym'].min()} to {df['ym'].max()}")
     st.markdown("---")
 
+universe = st.selectbox(
+    "Stock Universe",
+    ["S&P 500", "Nasdaq-100", "S&P 500 + Nasdaq-100"],
+    help="Which index constituents to fetch. Combined option deduplicates overlapping stocks.",
+)
+
 fred_key = os.environ.get("FRED_API_KEY", "")
 if not fred_key:
     fred_key = st.text_input(
@@ -35,12 +41,21 @@ if not fred_key:
         os.environ["FRED_API_KEY"] = fred_key
 
 st.markdown("---")
+
+universe_info = {
+    "S&P 500": ("~500 stocks", "10-20 minutes"),
+    "Nasdaq-100": ("~100 stocks", "3-5 minutes"),
+    "S&P 500 + Nasdaq-100": ("~530 stocks (deduplicated)", "10-25 minutes"),
+}
+count, est_time = universe_info[universe]
+
 st.markdown(
     "**Data sources:** Yahoo Finance (prices, fundamentals), "
     "Ken French Library (FF5 factors), FRED (VIX, yield curve, EPU)"
 )
 st.markdown(
-    "**Estimated time:** 10-20 minutes for ~500 S&P 500 stocks"
+    f"**Universe:** {universe} ({count})  \n"
+    f"**Estimated time:** {est_time}"
 )
 
 if st.button("Refresh Data", type="primary", use_container_width=True):
@@ -73,6 +88,7 @@ if st.button("Refresh Data", type="primary", use_container_width=True):
 
         result = run_pipeline(
             fred_api_key=fred_key or None,
+            universe=universe,
             progress_callback=progress_callback,
         )
 

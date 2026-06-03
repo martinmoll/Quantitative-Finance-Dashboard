@@ -44,8 +44,8 @@ def test_fill_red_features(sample_raw_features):
     result = fill_red_features(sample_raw_features)
     assert "iv_atm_30d" in result.columns
     assert "vrp" in result.columns
-    assert (result["iv_atm_30d"] == 0.0).all()
-    assert (result["vrp"] == 0.0).all()
+    assert result["iv_atm_30d"].isna().all()
+    assert result["vrp"].isna().all()
 
 
 def test_validate_schema_identifies_missing():

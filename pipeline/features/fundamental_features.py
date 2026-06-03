@@ -20,6 +20,7 @@ def compute_fundamental_features(
         mcap = data.get("market_cap", np.nan)
 
         n_q = len(quarters)
+        prev_sue = np.nan
 
         for i in range(n_q):
             ym = quarters[i].strftime("%Y-%m")
@@ -67,7 +68,11 @@ def compute_fundamental_features(
                 row["roe"] = _safe_div(ni_ttm, equity)
                 row["lev"] = _safe_div(debt, equity)
 
-            row["nsi"] = 0.0
+            shares_issued = _safe_get(bal, "ShareIssued", i)
+            if i >= 4 and shares_issued is not None:
+                prev_shares = _safe_get(bal, "ShareIssued", i - 4)
+                if prev_shares and prev_shares > 0:
+                    row["nsi"] = shares_issued / prev_shares - 1
 
             if i >= 4:
                 prev_rev = _safe_get(inc, "TotalRevenue", i - 4)
@@ -116,7 +121,12 @@ def compute_fundamental_features(
                             diffs.append(e_j - e_j4)
                     std_diff = np.std(diffs) if len(diffs) > 1 else np.nan
                     if std_diff and std_diff > 0:
-                        row["sue_q"] = (eps - prev_eps_4) / std_diff
+                        sue_val = (eps - prev_eps_4) / std_diff
+                        row["sue_q"] = sue_val
+                        row["sue"] = sue_val
+                        if not np.isnan(prev_sue):
+                            row["sue_chg"] = sue_val - prev_sue
+                        prev_sue = sue_val
 
             if total_assets and total_assets > 0 and ocf is not None and net_income is not None:
                 row["cfo_at"] = ocf / total_assets
@@ -148,9 +158,21 @@ def compute_fundamental_features(
                 if prev_oi and prev_oi != 0:
                     row["oi_growth_yoy"] = op_income / prev_oi - 1
 
-            row["dp_ratio"] = 0.0
-            row["inv_chg"] = 0.0
-            row["rec_chg"] = 0.0
+            inventory = _safe_get(bal, "Inventory", i)
+            if i >= 1 and inventory is not None and total_assets and total_assets > 0:
+                prev_inv = _safe_get(bal, "Inventory", i - 1)
+                if prev_inv is not None:
+                    row["inv_chg"] = (inventory - prev_inv) / total_assets
+
+            receivables = _safe_get(bal, "AccountsReceivable", i)
+            if receivables is None:
+                receivables = _safe_get(bal, "Receivables", i)
+            if i >= 1 and receivables is not None and total_assets and total_assets > 0:
+                prev_rec = _safe_get(bal, "AccountsReceivable", i - 1)
+                if prev_rec is None:
+                    prev_rec = _safe_get(bal, "Receivables", i - 1)
+                if prev_rec is not None:
+                    row["rec_chg"] = (receivables - prev_rec) / total_assets
 
             all_rows.append(row)
 

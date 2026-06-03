@@ -8,8 +8,11 @@ def compute_price_features(
     prices: pd.DataFrame,
     market_daily: pd.Series,
     shares_outstanding: dict[str, float],
+    dividends: dict[str, pd.Series] | None = None,
 ) -> pd.DataFrame:
     tickers = prices.columns.get_level_values(0).unique()
+    if market_daily.index.tz is not None:
+        market_daily = market_daily.tz_localize(None)
     market_ret = market_daily.pct_change()
     all_rows = []
 
@@ -21,6 +24,9 @@ def compute_price_features(
 
         if df.empty or "Close" not in df.columns:
             continue
+
+        if df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
 
         close = df["Close"].dropna()
         volume = df["Volume"].dropna() if "Volume" in df.columns else pd.Series(dtype=float)
@@ -90,7 +96,20 @@ def compute_price_features(
             if len(close_12m) > 0:
                 row["prc_52w_high"] = me_price / close_12m.max()
 
-            row["age"] = 0.0
+            first_date = close.index[0]
+            row["age"] = (me_date.year - first_date.year) * 12 + (me_date.month - first_date.month)
+
+            if dividends and ticker in dividends:
+                div_series = dividends[ticker]
+                if div_series.index.tz is not None:
+                    div_series = div_series.tz_localize(None)
+                div_12m = div_series[
+                    (div_series.index <= me_date)
+                    & (div_series.index > me_date - pd.DateOffset(months=12))
+                ]
+                div_sum = div_12m.sum()
+                if me_price > 0:
+                    row["dp_ratio"] = div_sum / me_price
 
             _add_technicals(row, close, volume, me_date)
 

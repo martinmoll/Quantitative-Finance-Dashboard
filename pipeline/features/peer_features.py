@@ -111,6 +111,11 @@ def compute_peer_features(
         df = df.merge(leader_lag_df, on=["ym", "sector"], how="left")
         result["leader_ret_lag1"] = df["leader_ret_lag1"].values
 
+    # Peer earnings surprise
+    if "sue" in df.columns:
+        result["peer_sue"] = df.groupby(["ym", "sector"])["sue"].transform("mean")
+        result["ind_sue"] = df.groupby(["ym", "industry"])["sue"].transform("mean")
+
     # Pre-built interaction features
     if "ret_2_12" in df.columns and "log_me" in df.columns:
         result["mom_x_size"] = df["ret_2_12"] * df["log_me"]
@@ -169,10 +174,10 @@ def _add_lagged_diffs(df: pd.DataFrame, result: pd.DataFrame):
         result["vol_grp_ret"] = df_temp.groupby(["ym", "vol_q"])["ret_1"].transform("mean")
 
     # Ind-size features (interaction group)
-    result["ind_size_ret"] = 0.0
-    result["ind_size_mom"] = 0.0
+    result["ind_size_ret"] = np.nan
+    result["ind_size_mom"] = np.nan
 
     # Interaction features needing macro data (filled by assembler)
-    result["mom_x_unc"] = 0.0
-    result["val_x_finunc"] = 0.0
-    result["beta_x_disp"] = 0.0
+    result["mom_x_unc"] = np.nan
+    result["val_x_finunc"] = np.nan
+    result["beta_x_disp"] = np.nan

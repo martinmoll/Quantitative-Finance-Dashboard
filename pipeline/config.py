@@ -68,9 +68,9 @@ RAW_FEATURE_COLS = [
 RED_FEATURES = [
     "iv_atm_30d", "iv_atm_91d", "iv_skew", "pc_vol_ratio", "pc_oi_ratio",
     "vrp", "iv_term_structure", "sector_iv", "sector_vrp",
-    "sue", "beat", "n_analysts", "revision", "dispersion", "revision_ratio",
-    "rev_surp", "sue_chg",
-    "peer_revision", "peer_sue", "ind_sue", "ind_crowding",
+    "beat", "n_analysts", "revision", "dispersion", "revision_ratio",
+    "rev_surp",
+    "peer_revision", "ind_crowding",
 ]
 
 TARGET_COLS = ["y_raw", "y_xs", "ret_excess", "ret_adj"]

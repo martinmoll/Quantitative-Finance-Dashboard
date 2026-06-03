@@ -31,9 +31,7 @@ def fill_red_features(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     for col in RED_FEATURES:
         if col not in result.columns:
-            result[col] = 0.0
-        else:
-            result[col] = result[col].fillna(0.0)
+            result[col] = np.nan
     return result
 
 
@@ -81,16 +79,23 @@ def assemble_month(
 
     merged = fill_red_features(merged)
 
+    if "ret_2_12" in merged.columns and "macro_unc_1m" in merged.columns:
+        merged["mom_x_unc"] = merged["ret_2_12"] * merged["macro_unc_1m"]
+    if "bm" in merged.columns and "fin_unc_1m" in merged.columns:
+        merged["val_x_finunc"] = merged["bm"] * merged["fin_unc_1m"]
+    if "beta" in merged.columns and "mkt_ret_dispersion" in merged.columns:
+        merged["beta_x_disp"] = merged["beta"] * merged["mkt_ret_dispersion"]
+
     for col in RAW_FEATURE_COLS:
         if col not in merged.columns:
-            merged[col] = 0.0
+            merged[col] = np.nan
 
     merged = cross_sectional_standardize(merged, XS_FEATURE_COLS)
 
     for col in XS_FEATURE_COLS:
         xs_col = f"{col}_xs"
         if xs_col not in merged.columns:
-            merged[xs_col] = 0.0
+            merged[xs_col] = np.nan
 
     if ticker_to_permno:
         merged["permno"] = merged["ticker"].map(ticker_to_permno)

@@ -23,9 +23,10 @@ class PipelineResult:
 
 def run_pipeline(
     fred_api_key: str | None = None,
+    universe: str = "S&P 500",
     progress_callback=None,
 ) -> PipelineResult:
-    from pipeline.universe import get_sp500_tickers
+    from pipeline.universe import get_tickers
     from pipeline.fetchers.prices import fetch_prices
     from pipeline.fetchers.fundamentals import fetch_fundamentals
     from pipeline.fetchers.factors import fetch_factors
@@ -43,8 +44,8 @@ def run_pipeline(
             progress_callback(stage, detail)
 
     try:
-        _report("universe", "Fetching S&P 500 tickers...")
-        tickers = get_sp500_tickers()
+        _report("universe", f"Fetching {universe} tickers...")
+        tickers = get_tickers(universe)
         _report("universe", f"Got {len(tickers)} tickers")
 
         _report("prices", "Downloading daily prices...")
@@ -61,7 +62,10 @@ def run_pipeline(
         else:
             import yfinance as yf
             spy = yf.download("SPY", period="3y", progress=False)
-            market_daily = spy["Close"]
+            close = spy["Close"]
+            market_daily = close.squeeze() if hasattr(close, "squeeze") else close
+            if hasattr(market_daily, "index") and market_daily.index.tz is not None:
+                market_daily = market_daily.tz_localize(None)
 
         _report("fundamentals", "Downloading quarterly financials...")
         fund_data = fetch_fundamentals(
@@ -94,12 +98,16 @@ def run_pipeline(
         shares = {}
         sectors = {}
         industries = {}
+        divs = {}
         for t, data in fund_data.items():
             shares[t] = data.get("shares_outstanding") or 0
             sectors[t] = data.get("sector", "Unknown")
             industries[t] = data.get("industry", "Unknown")
+            d = data.get("dividends")
+            if d is not None and len(d) > 0:
+                divs[t] = d
 
-        price_feats = compute_price_features(prices, market_daily, shares)
+        price_feats = compute_price_features(prices, market_daily, shares, divs)
 
         _report("features", "Computing fundamental features...")
         fund_input = {}
@@ -110,8 +118,10 @@ def run_pipeline(
             if not quarters:
                 continue
 
+            quarters_tz_naive = pd.DatetimeIndex(quarters).tz_localize(None) if hasattr(pd.DatetimeIndex(quarters), 'tz') and pd.DatetimeIndex(quarters).tz is not None else pd.DatetimeIndex(quarters)
+
             fund_input[t] = {
-                "quarters": pd.DatetimeIndex(quarters),
+                "quarters": quarters_tz_naive,
                 "income": _stmt_to_dict(data["income"], quarters),
                 "balance": _stmt_to_dict(data["balance"], quarters) if data["balance"] is not None and not data["balance"].empty else {},
                 "cashflow": _stmt_to_dict(data["cashflow"], quarters) if data["cashflow"] is not None and not data["cashflow"].empty else {},
@@ -172,7 +182,10 @@ def _stmt_to_dict(stmt_df: pd.DataFrame, quarters) -> dict:
     for field in stmt_df.index:
         vals = []
         for q in quarters:
-            val = stmt_df.loc[field, q]
-            vals.append(float(val) if pd.notna(val) else np.nan)
+            try:
+                val = stmt_df.loc[field, q]
+                vals.append(float(val) if pd.notna(val) else np.nan)
+            except KeyError:
+                vals.append(np.nan)
         result[field] = vals
     return result
