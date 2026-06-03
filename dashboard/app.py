@@ -20,10 +20,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+DATA_DIR = Path(__file__).parent.parent / "Data"
+_dataset_exists = (DATA_DIR / "alpha_dataset_v2.parquet").exists() or \
+                  (DATA_DIR / "alpha_dataset_v2.csv").exists()
+
 
 @st.cache_data
 def _load_all_data():
-    df = load_dataset()
+    df = load_dataset(auto_generate=True)
 
     from features import precompute_features
     df = precompute_features(df)
@@ -37,6 +41,12 @@ def _load_all_data():
 
     return df, market, ff5
 
+
+if not _dataset_exists:
+    st.info(
+        "No dataset found. Fetching live market data and building the dataset — "
+        "this may take a few minutes on first run..."
+    )
 
 df, market_monthly, ff5_factors = _load_all_data()
 

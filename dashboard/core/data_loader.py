@@ -10,15 +10,46 @@ DATA_DIR = Path(__file__).parent.parent.parent / "Data"
 FF5_PATH = DATA_DIR / "ff5_factors.csv"
 
 
-def load_dataset(path: str | Path | None = None) -> pd.DataFrame:
-    """Load and validate the alpha dataset. Tries Parquet first, then CSV."""
+def generate_dataset(progress_callback=None) -> pd.DataFrame:
+    """Run the pipeline to generate the dataset from scratch."""
+    import os
+    import sys
+    sys.path.insert(0, str(DATA_DIR.parent))
+    from pipeline import run_pipeline
+
+    fred_key = os.environ.get("FRED_API_KEY", "")
+    result = run_pipeline(
+        fred_api_key=fred_key or None,
+        progress_callback=progress_callback,
+    )
+    if not result.success:
+        raise RuntimeError(
+            f"Pipeline failed to generate dataset: {result.error}"
+        )
+    return load_dataset()
+
+
+def load_dataset(path: str | Path | None = None, auto_generate: bool = False,
+                 progress_callback=None) -> pd.DataFrame:
+    """Load and validate the alpha dataset. Tries Parquet first, then CSV.
+
+    If auto_generate is True and no dataset file exists, runs the pipeline
+    to fetch data and build the dataset from scratch.
+    """
     if path is None:
         parquet_path = DATA_DIR / "alpha_dataset_v2.parquet"
         csv_path = DATA_DIR / "alpha_dataset_v2.csv"
         if parquet_path.exists():
             path = parquet_path
-        else:
+        elif csv_path.exists():
             path = csv_path
+        elif auto_generate:
+            return generate_dataset(progress_callback=progress_callback)
+        else:
+            raise FileNotFoundError(
+                f"Dataset not found at {csv_path}. "
+                "Run with auto_generate=True or execute the pipeline first."
+            )
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found at {path}")

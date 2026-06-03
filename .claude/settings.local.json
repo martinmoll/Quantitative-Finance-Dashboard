@@ -77,7 +77,11 @@
       "Bash(python -m pytest ../tests/test_data_loader.py ../tests/test_features.py -v)",
       "Bash(python -m pytest tests/test_pipeline_features.py tests/test_pipeline_assembler.py -v)",
       "Bash(python -c \"from core.risk import factor_exposure, factor_alpha, rolling_factor_exposure; print\\('imports OK'\\)\")",
-      "Bash(python -c \"from components.theory_content import THEORY_CONTENT; print\\('jensens_alpha' in THEORY_CONTENT\\); from core.risk import factor_alpha; print\\('all imports OK'\\)\")"
+      "Bash(python -c \"from components.theory_content import THEORY_CONTENT; print\\('jensens_alpha' in THEORY_CONTENT\\); from core.risk import factor_alpha; print\\('all imports OK'\\)\")",
+      "PowerShell(pip install *)",
+      "PowerShell(python -m pip install -r requirements.txt)",
+      "Bash(python -m pytest tests/test_data_loader.py -v)",
+      "Bash(python -m pytest tests/test_data_loader.py -v --rootdir=dashboard)"
     ]
   }
 }

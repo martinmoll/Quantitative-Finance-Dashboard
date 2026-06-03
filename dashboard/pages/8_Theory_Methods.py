@@ -1,5 +1,5 @@
-# dashboard/pages/7_Theory_Methods.py
-"""Page 7: Theory & Methods — standalone educational overview."""
+# dashboard/pages/8_Theory_Methods.py
+"""Page 8: Theory & Methods — standalone educational overview."""
 
 import streamlit as st
 from components.theory_content import THEORY_CONTENT
@@ -26,6 +26,7 @@ sections = [
     ("Feature Importance", "feature_importance"),
     ("Portfolio Construction Methods", "portfolio_construction"),
     ("Turnover and Transaction Costs", "turnover_and_costs"),
+    ("VaR, CVaR & Tail Risk", "var_and_tail_risk"),
     ("Distribution Shift & OOD Detection", "distribution_shift"),
     ("Alpha Decay and Retraining", "alpha_decay"),
     ("Glossary", "glossary"),

@@ -343,5 +343,75 @@ These premiums have persisted across decades and geographies, but they're time-v
 | Ledoit-Wolf | Covariance matrix shrinkage estimator; stabilizes noisy sample covariance |
 | Walk-Forward | Time-respecting validation: only train on past data to predict future |
 | Look-Ahead Bias | Using future information in training — the cardinal sin of backtesting |
+| VaR | Value at Risk — maximum loss at a given confidence level over a time horizon |
+| CVaR / ES | Conditional VaR / Expected Shortfall — expected loss given that loss exceeds VaR |
+""",
+
+    "var_and_tail_risk": r"""
+**Value at Risk (VaR)**
+
+VaR answers: *"What is the worst loss I can expect at a given confidence level?"*
+
+$$\text{VaR}_\alpha = -\inf\{x : P(R \leq x) > 1 - \alpha\}$$
+
+At 95% confidence, a monthly VaR of 5% means: *"In 19 out of 20 months, we expect to lose no more than 5%."*
+
+**Three estimation approaches:**
+
+| Method | Assumption | Strengths | Weaknesses |
+|--------|-----------|-----------|------------|
+| **Parametric** | Returns ~ Normal | Simple, closed-form | Underestimates tail risk (fat tails) |
+| **Historical** | Past = future | No distribution assumption | Needs long history; ignores regime changes |
+| **Monte Carlo** | Fitted model | Flexible; handles complex portfolios | Computationally expensive; model-dependent |
+
+**Parametric VaR** assumes normally distributed returns:
+
+$$\text{VaR}_\alpha = -(\mu + z_\alpha \cdot \sigma)$$
+
+where $z_\alpha = \Phi^{-1}(1-\alpha)$ is the standard normal quantile (e.g., $z_{0.95} = -1.645$).
+
+**Historical VaR** simply takes the empirical quantile of observed returns — no distribution assumed.
+
+**Monte Carlo VaR** simulates thousands of return paths from a fitted distribution, then takes the quantile of the simulated distribution.
+
+---
+
+**Conditional VaR (CVaR) / Expected Shortfall**
+
+VaR tells you the threshold; CVaR tells you *how bad it gets when VaR is breached*:
+
+$$\text{CVaR}_\alpha = -E[R \mid R \leq -\text{VaR}_\alpha]$$
+
+CVaR is a **coherent risk measure** (unlike VaR), meaning it satisfies subadditivity: the risk of a combined portfolio is never greater than the sum of individual risks. This makes CVaR preferable for portfolio optimization.
+
+---
+
+**Cornish-Fisher VaR**
+
+Adjusts the normal quantile for skewness ($S$) and excess kurtosis ($K$):
+
+$$z_{CF} = z + \frac{(z^2-1)S}{6} + \frac{(z^3-3z)K}{24} - \frac{(2z^3-5z)S^2}{36}$$
+
+This captures the reality that financial returns are left-skewed and fat-tailed. When $S=0$ and $K=0$, Cornish-Fisher reduces to parametric VaR.
+
+---
+
+**Component VaR**
+
+Decomposes portfolio VaR by position:
+
+$$\text{CVaR}_i = w_i \cdot \frac{\partial \text{VaR}}{\partial w_i} = w_i \cdot z_\alpha \cdot \frac{(\Sigma \mathbf{w})_i}{\sigma_p}$$
+
+Component VaRs sum to total VaR, so you can see which positions drive tail risk.
+
+---
+
+**Kupiec Proportion of Failures (POF) Test**
+
+To validate a VaR model, count how many times actual losses exceeded VaR. Under a correct model, breaches should occur at rate $(1-\alpha)$. The Kupiec test uses a likelihood ratio:
+
+$$LR_{POF} = -2\ln\frac{(1-p)^{n-x} p^x}{(1-\hat{p})^{n-x} \hat{p}^x} \sim \chi^2(1)$$
+
+where $p$ is the expected breach rate, $\hat{p}$ is the observed rate, $x$ is the number of breaches, and $n$ is the number of observations. A low p-value means the VaR model is miscalibrated.
 """,
 }
