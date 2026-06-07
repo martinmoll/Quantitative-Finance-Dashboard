@@ -1,3 +1,4 @@
+import pytest
 import pandas as pd
 import numpy as np
 from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
@@ -22,7 +23,6 @@ def test_compute_market_monthly_sorted(sample_panel):
 
 
 def test_load_ff5_factors_columns(tmp_path):
-    # Create a minimal CSV matching expected format
     months = ["2015-01", "2015-02", "2015-03"]
     df = pd.DataFrame(
         {
@@ -41,3 +41,55 @@ def test_load_ff5_factors_columns(tmp_path):
     loaded = load_ff5_factors(csv_path)
     assert set(loaded.columns) == {"Mkt-RF", "SMB", "HML", "RMW", "CMA", "RF"}
     assert len(loaded) == 3
+
+
+def test_load_ff5_factors_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_ff5_factors(tmp_path / "nonexistent.csv")
+
+
+def test_load_dataset_from_csv(tmp_path):
+    df = pd.DataFrame({
+        "ym": ["2020-01", "2020-02"],
+        "permno": [1, 2],
+        "y_xs": [0.1, 0.2],
+        "y_raw": [0.1, 0.2],
+        "Mkt_RF": [0.01, -0.01],
+        "rf_ff": [0.002, 0.002],
+    })
+    csv_path = tmp_path / "alpha_dataset_v2.csv"
+    df.to_csv(csv_path, index=False)
+
+    loaded = load_dataset(path=csv_path)
+    assert len(loaded) == 2
+    assert set(df.columns).issubset(set(loaded.columns))
+
+
+def test_load_dataset_from_parquet(tmp_path):
+    df = pd.DataFrame({
+        "ym": ["2020-01", "2020-02"],
+        "permno": [1, 2],
+        "y_xs": [0.1, 0.2],
+        "y_raw": [0.1, 0.2],
+        "Mkt_RF": [0.01, -0.01],
+        "rf_ff": [0.002, 0.002],
+    })
+    pq_path = tmp_path / "test.parquet"
+    df.to_parquet(pq_path, index=False)
+
+    loaded = load_dataset(path=pq_path)
+    assert len(loaded) == 2
+
+
+def test_load_dataset_missing_columns(tmp_path):
+    df = pd.DataFrame({"ym": ["2020-01"], "permno": [1]})
+    csv_path = tmp_path / "bad.csv"
+    df.to_csv(csv_path, index=False)
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        load_dataset(path=csv_path)
+
+
+def test_load_dataset_file_not_found(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_dataset(path=tmp_path / "nonexistent.csv")
