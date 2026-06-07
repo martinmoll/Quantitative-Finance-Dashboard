@@ -1,0 +1,186 @@
+"""Workflow navigation components for the Alpha Strategy Dashboard."""
+
+from __future__ import annotations
+import streamlit as st
+from typing import Optional
+
+STAGES = [
+    {
+        "key": "data",
+        "label": "Data",
+        "icon": "1",
+        "description": "Load market data",
+        "page": "pages/0_Data_Pipeline.py",
+        "complete_check": lambda: st.session_state.get("df") is not None,
+    },
+    {
+        "key": "explore",
+        "label": "Explore",
+        "icon": "2",
+        "description": "Explore data & factors",
+        "page": "pages/1_Data_Explorer.py",
+        "complete_check": lambda: st.session_state.get("df") is not None,
+    },
+    {
+        "key": "model",
+        "label": "Build Model",
+        "icon": "3",
+        "description": "Configure & run backtest",
+        "page": "pages/3_Alpha_Model_Lab.py",
+        "complete_check": lambda: st.session_state.get("backtest_result") is not None,
+    },
+    {
+        "key": "results",
+        "label": "Results",
+        "icon": "4",
+        "description": "Review backtest diagnostics",
+        "page": "pages/4_Backtest_Results.py",
+        "complete_check": lambda: st.session_state.get("backtest_result") is not None,
+    },
+    {
+        "key": "portfolio",
+        "label": "Portfolio",
+        "icon": "5",
+        "description": "Construction & risk analysis",
+        "page": "pages/5_Portfolio_Construction.py",
+        "complete_check": lambda: (
+            st.session_state.get("backtest_result") is not None
+            and st.session_state.get("backtest_predictions") is not None
+        ),
+    },
+    {
+        "key": "monitor",
+        "label": "Monitor",
+        "icon": "6",
+        "description": "OOD detection & tail risk",
+        "page": "pages/6_Monitoring.py",
+        "complete_check": lambda: st.session_state.get("backtest_result") is not None,
+    },
+]
+
+_STAGE_INDEX = {s["key"]: i for i, s in enumerate(STAGES)}
+
+_REQUIRED_KEYS: dict[str, list[str]] = {
+    "data": [],
+    "explore": ["df"],
+    "model": ["df", "market_monthly"],
+    "results": ["backtest_result"],
+    "portfolio": ["backtest_result", "backtest_predictions"],
+    "monitor": ["backtest_result"],
+}
+
+
+def render_workflow_status(current_stage: str) -> None:
+    """Render an inline horizontal workflow stepper showing pipeline progress."""
+    steps_html = []
+    for stage in STAGES:
+        is_complete = stage["complete_check"]()
+        is_current = stage["key"] == current_stage
+
+        if is_complete and not is_current:
+            circle = "background:#00D26A;color:#0A1628;"
+            label = "color:#00D26A;"
+            symbol = "&#10003;"
+        elif is_current:
+            circle = "background:#3b82f6;color:#fff;"
+            label = "color:#3b82f6;font-weight:bold;"
+            symbol = stage["icon"]
+        else:
+            circle = "background:#2a3a4e;color:#8899AA;"
+            label = "color:#8899AA;"
+            symbol = stage["icon"]
+
+        steps_html.append(
+            f'<div style="text-align:center;flex:1;">'
+            f'<div style="width:30px;height:30px;border-radius:50%;{circle}'
+            f"display:inline-flex;align-items:center;justify-content:center;"
+            f'font-size:14px;font-weight:bold;">{symbol}</div>'
+            f'<div style="font-size:11px;margin-top:3px;{label}">'
+            f"{stage['label']}</div></div>"
+        )
+
+    connectors = []
+    for i in range(len(STAGES) - 1):
+        done = STAGES[i]["complete_check"]()
+        color = "#00D26A" if done else "#2a3a4e"
+        connectors.append(
+            f'<div style="flex:0.5;height:2px;background:{color};'
+            f'align-self:center;margin-top:-10px;"></div>'
+        )
+
+    interleaved = []
+    for i, step in enumerate(steps_html):
+        interleaved.append(step)
+        if i < len(connectors):
+            interleaved.append(connectors[i])
+
+    html = (
+        '<div style="display:flex;align-items:flex-start;'
+        'justify-content:space-between;padding:10px 0 14px;'
+        f'margin-bottom:8px;">{"".join(interleaved)}</div>'
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_next_steps(
+    current_stage: str, custom_message: Optional[str] = None,
+) -> None:
+    """Render 'Next Steps' navigation at the bottom of a page."""
+    idx = _STAGE_INDEX.get(current_stage)
+    if idx is None or idx >= len(STAGES) - 1:
+        return
+
+    next_stage = STAGES[idx + 1]
+    required = _REQUIRED_KEYS.get(next_stage["key"], [])
+    is_ready = all(st.session_state.get(k) is not None for k in required)
+
+    st.markdown("---")
+    msg = custom_message or (
+        f"Continue to **{next_stage['label']}**: {next_stage['description']}"
+    )
+    st.markdown(msg)
+
+    if is_ready:
+        if st.button(f"Go to {next_stage['label']}  →", type="primary"):
+            st.switch_page(next_stage["page"])
+    else:
+        st.button(
+            f"Go to {next_stage['label']}  →",
+            disabled=True,
+            help="Complete this step first",
+        )
+
+
+def render_empty_state(current_stage: str) -> bool:
+    """Render a rich empty state when required data is missing.
+
+    Returns True if dependencies are missing (caller should ``st.stop()``).
+    """
+    required = _REQUIRED_KEYS.get(current_stage, [])
+    missing = [k for k in required if st.session_state.get(k) is None]
+    if not missing:
+        return False
+
+    st.markdown(
+        '<div style="text-align:center;padding:60px 20px;">'
+        '<div style="font-size:48px;margin-bottom:16px;">&#128300;</div>'
+        '<h3 style="color:#8899AA;">No Backtest Results Yet</h3>'
+        '<p style="color:#8899AA;max-width:500px;margin:0 auto 24px;">'
+        "This page requires a completed backtest. Configure your model "
+        "and run a walk-forward backtest in the Alpha Model Lab.</p></div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("**Required data:**")
+    for key in required:
+        present = st.session_state.get(key) is not None
+        icon = ":white_check_mark:" if present else ":x:"
+        status = "Available" if present else "Missing"
+        st.markdown(f"- {icon} `{key}` — {status}")
+
+    col1, col2, col3 = st.columns([2, 1, 2])
+    with col2:
+        if st.button("Go to Alpha Model Lab  →", type="primary"):
+            st.switch_page("pages/3_Alpha_Model_Lab.py")
+
+    return True

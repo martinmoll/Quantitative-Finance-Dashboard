@@ -10,9 +10,11 @@ from core.diagnostics import compute_performance_metrics
 from features import FEATURE_GROUPS, get_tier_defaults
 import cache_manager as cache
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_next_steps
 
 st.set_page_config(page_title="Alpha Model Lab", layout="wide")
 st.title("Alpha Model Lab")
+render_workflow_status("model")
 
 df = st.session_state.get("df")
 market_monthly = st.session_state.get("market_monthly")
@@ -190,7 +192,8 @@ if run_clicked:
         "strategy_type": strategy_key, "construction_method": construction_method,
         "features": available_features, "window_type": window_type,
     }
-    st.success("Backtest complete! Navigate to **Backtest Results** to view.")
+    st.success("Backtest complete!")
+    render_next_steps("model")
 
 # --- Pin Config ---
 if pin_clicked:

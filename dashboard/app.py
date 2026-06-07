@@ -12,6 +12,7 @@ All UI lives in the pages/ directory.
 import streamlit as st
 from pathlib import Path
 from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
+from components.workflow import render_workflow_status, render_next_steps
 
 st.set_page_config(
     page_title="Alpha Strategy Dashboard",
@@ -67,10 +68,7 @@ if "portfolio_weights" not in st.session_state:
 
 st.sidebar.title("Alpha Strategy Dashboard")
 st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "Navigate using the sidebar pages. Start with **Alpha Model Lab** "
-    "to configure and run a backtest."
-)
+render_workflow_status("data")
 
 st.title("Alpha Strategy Dashboard")
 st.markdown(
@@ -87,7 +85,4 @@ with col3:
     date_range = f"{df['ym'].min()} → {df['ym'].max()}"
     st.metric("Date Range", date_range)
 
-if st.session_state.backtest_result is not None:
-    st.success("Backtest results loaded. Navigate to **Backtest Results** to view.")
-else:
-    st.info("No backtest results yet. Go to **Alpha Model Lab** to run one.")
+render_next_steps("data", custom_message="Start by exploring your data or jump straight to building a model.")

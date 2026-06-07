@@ -10,7 +10,10 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+from components.workflow import render_workflow_status, render_next_steps
+
 st.header("Data Pipeline")
+render_workflow_status("data")
 st.markdown("Fetch the latest market data and update the dataset.")
 
 df = st.session_state.get("df")
@@ -142,3 +145,5 @@ else:
         "Click **Refresh Data** to fetch the latest market data from Yahoo Finance, "
         "FRED, and Ken French's data library. This may take 10-20 minutes."
     )
+
+render_next_steps("data")

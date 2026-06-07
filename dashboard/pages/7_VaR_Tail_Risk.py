@@ -14,16 +14,17 @@ from core.risk import (
 from components.charts import STYLE, _base_layout
 from components.metrics import metric_row
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_empty_state
 
 st.set_page_config(page_title="VaR & Tail Risk", layout="wide")
 st.title("Value at Risk & Tail Risk")
+render_workflow_status("monitor")
+
+if render_empty_state("monitor"):
+    st.stop()
 
 result = st.session_state.get("backtest_result")
 params = st.session_state.get("backtest_params")
-
-if result is None:
-    st.info("Run a backtest on the **Alpha Model Lab** page first.")
-    st.stop()
 
 rets = result["monthly_returns"].dropna()
 if len(rets) < 6:

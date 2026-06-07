@@ -11,10 +11,12 @@ from core.factor_models import (
 from components.metrics import regression_table, vif_table
 from components.charts import STYLE, rolling_metric_chart
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_next_steps
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Factor Analysis", layout="wide")
 st.title("Factor Analysis (CAPM & FF5)")
+render_workflow_status("explore")
 
 df = st.session_state.get("df")
 ff5 = st.session_state.get("ff5_factors")
@@ -157,3 +159,5 @@ with hedge_col2:
         f"To neutralize a portfolio with β={port_beta:.1f}, "
         f"short **{abs(hedge_w):.1%}** of portfolio value in SPY."
     )
+
+render_next_steps("explore", custom_message="Ready to build a predictive model? Continue to the Alpha Model Lab.")

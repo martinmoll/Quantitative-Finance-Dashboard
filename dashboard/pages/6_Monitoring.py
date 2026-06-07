@@ -8,20 +8,21 @@ from core.diagnostics import ks_test, alpha_decay, signal_staleness, compute_ic_
 from core.risk import factor_exposure
 from components.charts import traffic_light_dashboard, bar_chart, STYLE
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_empty_state
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Monitoring", layout="wide")
 st.title("Monitoring & OOD Detection")
+render_workflow_status("monitor")
+
+if render_empty_state("monitor"):
+    st.stop()
 
 result = st.session_state.get("backtest_result")
 predictions = st.session_state.get("backtest_predictions")
 params = st.session_state.get("backtest_params")
 df = st.session_state.get("df")
 ff5 = st.session_state.get("ff5_factors")
-
-if result is None or predictions is None:
-    st.info("Run a backtest on the **Alpha Model Lab** page first.")
-    st.stop()
 
 theory_section("Distribution Shift", "distribution_shift")
 theory_section("Alpha Decay and Retraining", "alpha_decay")

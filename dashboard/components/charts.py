@@ -240,8 +240,10 @@ def risk_pie_chart(risk_contributions: pd.Series, top_n: int = 10) -> go.Figure:
         labels=top.index.astype(str),
         values=top.values,
         hole=0.3,
-        textinfo="label+percent",
+        textinfo="percent",
+        textposition="inside",
+        hovertemplate="%{label}<br>Risk contribution: %{percent}<extra></extra>",
         marker=dict(line=dict(color=STYLE["bg"], width=2)),
     ))
-    fig.update_layout(**_base_layout(title="Risk Contribution", height=400))
+    fig.update_layout(**_base_layout(title="Risk Contribution (%)", height=400))
     return fig

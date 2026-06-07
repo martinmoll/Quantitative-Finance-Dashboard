@@ -15,20 +15,21 @@ from components.charts import (
 )
 from components.metrics import metric_row, comparison_table
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_empty_state, render_next_steps
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Portfolio Construction", layout="wide")
 st.title("Portfolio Construction & Risk")
+render_workflow_status("portfolio")
+
+if render_empty_state("portfolio"):
+    st.stop()
 
 result = st.session_state.get("backtest_result")
 predictions = st.session_state.get("backtest_predictions")
 params = st.session_state.get("backtest_params")
 ff5 = st.session_state.get("ff5_factors")
 market = st.session_state.get("market_monthly")
-
-if result is None or predictions is None:
-    st.info("Run a backtest on the **Alpha Model Lab** page first.")
-    st.stop()
 
 theory_section("Portfolio Construction Methods", "portfolio_construction")
 
@@ -89,7 +90,13 @@ if len(selected_methods) >= 1:
                     n = len(w)
                     cov = np.eye(n) * 0.01
                     rc = risk_contribution(w / w.sum(), cov)
-                    rc.index = held["permno"].values
+                    if "sector" in held.columns:
+                        rc.index = [
+                            f"{p} ({s})" for p, s in
+                            zip(held["permno"].values, held["sector"].values)
+                        ]
+                    else:
+                        rc.index = [str(p) for p in held["permno"].values]
                     fig = risk_pie_chart(rc)
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -200,3 +207,5 @@ if len(method_results) >= 2:
         p["Net SR"] = p["SR"] - tc_m["Cost_SR"]
         comp.append(p)
     comparison_table(comp)
+
+render_next_steps("portfolio")

@@ -6,10 +6,12 @@ import pandas as pd
 import numpy as np
 from components.charts import correlation_heatmap, bar_chart, STYLE
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_next_steps
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Data Explorer", layout="wide")
 st.title("Data Explorer")
+render_workflow_status("explore")
 
 df = st.session_state.get("df")
 if df is None:
@@ -96,3 +98,5 @@ if len(missing_nonzero) > 0:
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.success("No missing data in feature columns.")
+
+render_next_steps("explore")

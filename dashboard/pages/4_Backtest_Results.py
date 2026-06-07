@@ -14,22 +14,42 @@ from components.charts import (
 )
 from components.metrics import metric_row, comparison_table
 from components.theory import theory_section
+from components.workflow import render_workflow_status, render_empty_state, render_next_steps
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Backtest Results", layout="wide")
 st.title("Backtest Results & Diagnostics")
+render_workflow_status("results")
+
+if render_empty_state("results"):
+    st.stop()
 
 result = st.session_state.get("backtest_result")
-if result is None:
-    st.info("No backtest results yet. Run a backtest on the **Alpha Model Lab** page.")
-    st.stop()
 
 market = st.session_state.get("market_monthly")
 pinned = st.session_state.get("pinned_configs", [])
 
-rets = result["monthly_returns"]
-ic = result["ic"]
-turnover = result["turnover"]
+# --- Config Selector ---
+config_options = ["Current Run"]
+config_map = {"Current Run": {"result": result, "params": st.session_state.get("backtest_params", {})}}
+for p in pinned:
+    config_options.append(p["label"])
+    config_map[p["label"]] = p
+
+if len(config_options) > 1:
+    active_label = st.selectbox("View config", config_options)
+else:
+    active_label = "Current Run"
+
+active = config_map[active_label]
+active_result = active["result"]
+active_params = active.get("params", {})
+
+st.markdown(f"**Showing:** {active_label}")
+
+rets = active_result["monthly_returns"]
+ic = active_result["ic"]
+turnover = active_result["turnover"]
 
 # --- Display Controls ---
 disp_col1, disp_col2, disp_col3 = st.columns(3)
@@ -119,6 +139,35 @@ ic_metric_col3.metric("ICIR", f"{ic_stats['icir']:.3f}",
 ic_metric_col4.metric("Hit Rate", f"{ic_stats['hit_rate']:.1%}",
                        delta="Good" if ic_stats["hit_rate"] > 0.55 else "Low")
 
+t = ic_stats["ic_tstat"]
+if abs(t) >= 2.58:
+    st.success(
+        f"**IC t-stat = {t:.2f}** — Highly significant (|t| > 2.58, p < 0.01). "
+        "The model's predictive signal is statistically reliable and very unlikely "
+        "to be due to chance. This is strong evidence of genuine forecasting ability."
+    )
+elif abs(t) >= 1.96:
+    st.info(
+        f"**IC t-stat = {t:.2f}** — Significant at the 5% level (|t| > 1.96). "
+        "The model's signal is statistically distinguishable from zero, suggesting "
+        "real predictive content. However, verify with out-of-sample performance "
+        "before relying on it."
+    )
+elif abs(t) >= 1.65:
+    st.warning(
+        f"**IC t-stat = {t:.2f}** — Marginally significant (|t| > 1.65, p < 0.10). "
+        "There is weak evidence of a signal. The IC could plausibly be zero — "
+        "consider increasing the backtest window or simplifying the model to "
+        "sharpen the signal."
+    )
+else:
+    st.error(
+        f"**IC t-stat = {t:.2f}** — Not significant (|t| < 1.65). "
+        "The model's predictions are statistically indistinguishable from random. "
+        "The observed IC may be entirely due to noise. Consider changing the "
+        "feature set, model, or retraining frequency."
+    )
+
 # --- Fundamental Law ---
 st.markdown("---")
 st.header("Fundamental Law of Active Management")
@@ -127,8 +176,7 @@ with fl_col1:
     sr_target = st.number_input("SR Target", value=1.0, step=0.1)
     tc_bps = st.number_input("Transaction Cost (bps)", value=10.0, step=5.0)
 with fl_col2:
-    params = st.session_state.get("backtest_params", {})
-    K_val = params.get("K", 10)
+    K_val = active_params.get("K", 10)
     fl = fundamental_law(ic_stats["mean_ic"], K_val, sr_target=sr_target, tc_bps=tc_bps)
     st.metric("Breadth (nominal)", f"{fl['BR_nominal']}")
     st.metric("IR Upper Bound", f"{fl['IR_upper_bound']:.3f}")
@@ -148,7 +196,9 @@ with hm_col2:
 # --- Feature Importance ---
 st.markdown("---")
 theory_section("Feature Importance", "feature_importance")
-importance = st.session_state.get("backtest_feature_importance")
+importance = active.get("feature_importance", st.session_state.get("backtest_feature_importance"))
+if active_label != "Current Run" and importance is None:
+    st.info("Feature importance is only available for the most recent run.")
 if importance is not None and len(importance) > 0:
     st.header("Feature Importance (Top 20)")
     top_imp = importance.nlargest(20, "importance")
@@ -170,11 +220,17 @@ if pinned:
     st.markdown("---")
     st.header("Strategy Comparison")
     configs = []
-    current_perf = compute_performance_metrics(rets)
-    current_perf["Strategy"] = "Current"
-    current_perf["Mean IC"] = ic_stats["mean_ic"]
-    current_perf["Mean Turnover"] = turnover.dropna().mean()
-    configs.append(current_perf)
+
+    cur_result = st.session_state.get("backtest_result")
+    cur_rets = cur_result["monthly_returns"]
+    cur_rets = cur_rets[cur_rets.index >= display_start]
+    cur_ic = cur_result["ic"]
+    cur_ic = cur_ic[cur_ic.index >= display_start]
+    cur_perf = compute_performance_metrics(cur_rets)
+    cur_perf["Strategy"] = "Current Run"
+    cur_perf["Mean IC"] = cur_ic.mean()
+    cur_perf["Mean Turnover"] = cur_result["turnover"].dropna().mean()
+    configs.append(cur_perf)
 
     for p in pinned:
         p_rets = p["result"]["monthly_returns"]
@@ -187,3 +243,5 @@ if pinned:
         configs.append(p_perf)
 
     comparison_table(configs)
+
+render_next_steps("results")
