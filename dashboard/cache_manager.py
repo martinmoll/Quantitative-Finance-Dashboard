@@ -19,17 +19,18 @@ def _make_key(params: dict) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding"):
+def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding", auto_tune=False):
     return _make_key({
         'model_type': model_type,
         'model_params': model_params,
         'retrain_every': retrain_every,
         'feature_cols': sorted(feature_cols) if feature_cols else None,
         'window_type': window_type,
+        'auto_tune': auto_tune,
     })
 
 
-def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_only", K_short=10, construction_method="equal_weight"):
+def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_only", K_short=10, construction_method="equal_weight", tc_bps=0.0):
     return _make_key({
         'pred_key': pred_key,
         'K': K,
@@ -38,6 +39,7 @@ def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_on
         'strategy_type': strategy_type,
         'K_short': K_short,
         'construction_method': construction_method,
+        'tc_bps': tc_bps,
     })
 
 

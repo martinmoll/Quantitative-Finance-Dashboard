@@ -110,24 +110,7 @@ def run_pipeline(
         price_feats = compute_price_features(prices, market_daily, shares, divs)
 
         _report("features", "Computing fundamental features...")
-        fund_input = {}
-        for t, data in fund_data.items():
-            quarters = []
-            if data["income"] is not None and not data["income"].empty:
-                quarters = sorted(data["income"].columns)
-            if not quarters:
-                continue
-
-            quarters_tz_naive = pd.DatetimeIndex(quarters).tz_localize(None) if hasattr(pd.DatetimeIndex(quarters), 'tz') and pd.DatetimeIndex(quarters).tz is not None else pd.DatetimeIndex(quarters)
-
-            fund_input[t] = {
-                "quarters": quarters_tz_naive,
-                "income": _stmt_to_dict(data["income"], quarters),
-                "balance": _stmt_to_dict(data["balance"], quarters) if data["balance"] is not None and not data["balance"].empty else {},
-                "cashflow": _stmt_to_dict(data["cashflow"], quarters) if data["cashflow"] is not None and not data["cashflow"].empty else {},
-                "market_cap": data.get("market_cap", 0),
-            }
-
+        fund_input = _build_fund_input(fund_data)
         fund_feats = compute_fundamental_features(fund_input) if fund_input else pd.DataFrame()
 
         if not fund_feats.empty:
@@ -175,6 +158,34 @@ def run_pipeline(
     except Exception as e:
         logger.exception("Pipeline failed")
         return PipelineResult(success=False, error=str(e))
+
+
+def _build_fund_input(fund_data: dict) -> dict:
+    """Convert raw fundamental data into the format expected by compute_fundamental_features."""
+    fund_input = {}
+    for t, data in fund_data.items():
+        if data["income"] is None or data["income"].empty:
+            continue
+        quarters = sorted(data["income"].columns)
+
+        qidx = pd.DatetimeIndex(quarters)
+        if qidx.tz is not None:
+            qidx = qidx.tz_localize(None)
+
+        def _safe_stmt(key):
+            stmt = data[key]
+            if stmt is not None and not stmt.empty:
+                return _stmt_to_dict(stmt, quarters)
+            return {}
+
+        fund_input[t] = {
+            "quarters": qidx,
+            "income": _stmt_to_dict(data["income"], quarters),
+            "balance": _safe_stmt("balance"),
+            "cashflow": _safe_stmt("cashflow"),
+            "market_cap": data.get("market_cap", 0),
+        }
+    return fund_input
 
 
 def _stmt_to_dict(stmt_df: pd.DataFrame, quarters) -> dict:

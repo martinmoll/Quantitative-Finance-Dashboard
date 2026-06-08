@@ -172,21 +172,21 @@ def risk_contribution(weights: np.ndarray, cov_matrix: np.ndarray) -> pd.Series:
     return pd.Series(rc_frac)
 
 
+def _ff5_available(ff5_factors: pd.DataFrame) -> list[str]:
+    return [c for c in ["Mkt-RF", "SMB", "HML", "RMW", "CMA"] if c in ff5_factors.columns]
+
+
 def factor_exposure(
     portfolio_returns: pd.Series,
     ff5_factors: pd.DataFrame,
 ) -> pd.Series:
-    factor_cols = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
-    available = [c for c in factor_cols if c in ff5_factors.columns]
+    available = _ff5_available(ff5_factors)
+    from core.factor_models import _align_and_regress
     common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
-
     if len(common) < 10:
         return pd.Series(dtype=float)
 
-    y = portfolio_returns.loc[common]
-    X = sm.add_constant(ff5_factors.loc[common, available])
-    model = sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
-
+    model = _align_and_regress(portfolio_returns, ff5_factors, available)
     return model.params.drop("const", errors="ignore")
 
 
@@ -195,16 +195,13 @@ def factor_alpha(
     ff5_factors: pd.DataFrame,
 ) -> dict | None:
     """Run FF5 regression and return alpha (intercept) with statistical tests."""
-    factor_cols = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
-    available = [c for c in factor_cols if c in ff5_factors.columns]
+    available = _ff5_available(ff5_factors)
     common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
-
     if len(common) < 10:
         return None
 
-    y = portfolio_returns.loc[common]
-    X = sm.add_constant(ff5_factors.loc[common, available])
-    model = sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
+    from core.factor_models import _align_and_regress
+    model = _align_and_regress(portfolio_returns, ff5_factors, available)
 
     monthly_alpha = model.params["const"]
     return {
@@ -223,8 +220,7 @@ def rolling_factor_exposure(
     ff5_factors: pd.DataFrame,
     window: int = 36,
 ) -> pd.DataFrame:
-    factor_cols = ["Mkt-RF", "SMB", "HML", "RMW", "CMA"]
-    available = [c for c in factor_cols if c in ff5_factors.columns]
+    available = _ff5_available(ff5_factors)
     common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
 
     y_all = portfolio_returns.loc[common]

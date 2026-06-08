@@ -11,7 +11,7 @@ from core.models import (
 
 def test_list_models():
     models = list_models()
-    assert set(models) == {"HGB", "RF", "Lasso", "Ridge", "ElasticNet", "FamaMacBeth"}
+    assert set(models) == {"HGB", "RF", "Lasso", "Ridge", "ElasticNet", "FamaMacBeth", "Ensemble"}
 
 
 def test_get_feature_tier():
@@ -21,6 +21,7 @@ def test_get_feature_tier():
     assert get_feature_tier("Ridge") == 1
     assert get_feature_tier("ElasticNet") == 1
     assert get_feature_tier("FamaMacBeth") == 1
+    assert get_feature_tier("Ensemble") == 2
 
 
 def test_get_default_params():

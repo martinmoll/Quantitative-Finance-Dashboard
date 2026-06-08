@@ -72,6 +72,23 @@ def test_mvo():
     assert (result["weight"] <= 0.151).all()
 
 
+def test_mvo_tc_aware():
+    np.random.seed(42)
+    df = _make_month_df(30)
+    returns_hist = pd.DataFrame(
+        np.random.randn(24, 30) * 0.05,
+        columns=range(10001, 10031),
+    )
+    prev_w = np.ones(10) / 10
+    result = construct_portfolio(
+        df, method="mvo", K=10, strategy_type="long_only",
+        K_short=10, vol_tilt=0.0, returns_history=returns_hist,
+        prev_weights=prev_w, tc_bps=50.0,
+    )
+    assert len(result) == 10
+    np.testing.assert_almost_equal(result["weight"].sum(), 1.0, decimal=3)
+
+
 def test_long_short():
     df = _make_month_df()
     result = construct_portfolio(df, method="equal_weight", K=10,

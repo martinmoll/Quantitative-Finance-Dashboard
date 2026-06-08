@@ -17,18 +17,28 @@ _FACTOR_SETS = {
 }
 
 
+def _align_and_regress(
+    returns: pd.Series,
+    factors: pd.DataFrame,
+    factor_cols: list[str],
+    hac: bool = True,
+) -> sm.regression.linear_model.RegressionResultsWrapper:
+    """Align indices, add constant, run OLS. Shared by all regression functions."""
+    common_idx = returns.dropna().index.intersection(factors.dropna().index)
+    y = returns.loc[common_idx]
+    X = sm.add_constant(factors.loc[common_idx, factor_cols])
+    if hac:
+        return sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
+    return sm.OLS(y, X).fit()
+
+
 def run_regression(
     returns: pd.Series,
     factors: pd.DataFrame,
     model_type: str = "CAPM",
 ) -> dict:
     factor_cols = _FACTOR_SETS[model_type]
-    common_idx = returns.dropna().index.intersection(factors.dropna().index)
-
-    y = returns.loc[common_idx]
-    X = sm.add_constant(factors.loc[common_idx, factor_cols])
-
-    model = sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 5})
+    model = _align_and_regress(returns, factors, factor_cols)
 
     from statsmodels.stats.stattools import durbin_watson, jarque_bera
 

@@ -1,4 +1,4 @@
-"""Model registry with 6 alpha models and extensible registration.
+"""Model registry with 7 alpha models and extensible registration.
 
 All models conform to the AlphaModel protocol: fit, predict,
 get_feature_importance, get_params.
@@ -8,7 +8,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from typing import Protocol, runtime_checkable
-from sklearn.base import clone
 from sklearn.ensemble import (
     HistGradientBoostingRegressor,
     RandomForestRegressor,
@@ -26,10 +25,47 @@ class AlphaModel(Protocol):
     def get_params(self) -> dict: ...
 
 
-class HGBModel:
+class SklearnAlphaModel:
+    """Base class for sklearn-backed alpha models."""
+
+    _model_type: str = ""
+
     def __init__(self, **params):
         self._params = params
-        self._model = HistGradientBoostingRegressor(
+        self._model = self._build_estimator(params)
+        self._feature_names: list[str] = []
+
+    def _build_estimator(self, params: dict):
+        raise NotImplementedError
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
+        self._feature_names = list(X.columns)
+        self._model.fit(X, y)
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        return self._model.predict(X)
+
+    def get_feature_importance(self) -> pd.Series | None:
+        return None
+
+    def get_params(self) -> dict:
+        return {**self._params, "model_type": self._model_type}
+
+
+class _CoefImportanceMixin:
+    """Mixin for models that expose importance via coef_."""
+
+    def get_feature_importance(self) -> pd.Series | None:
+        return pd.Series(
+            np.abs(self._model.coef_), index=self._feature_names
+        ).sort_values(ascending=False)
+
+
+class HGBModel(SklearnAlphaModel):
+    _model_type = "HGB"
+
+    def _build_estimator(self, params: dict):
+        return HistGradientBoostingRegressor(
             max_depth=params.get("max_depth", 2),
             learning_rate=params.get("learning_rate", 0.05),
             min_samples_leaf=params.get("min_samples_leaf", 500),
@@ -38,19 +74,17 @@ class HGBModel:
             early_stopping=False,
             random_state=42,
         )
-        self._feature_names: list[str] = []
+
+    def __init__(self, **params):
+        super().__init__(**params)
         self._perm_importance: np.ndarray | None = None
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
-        self._feature_names = list(X.columns)
-        self._model.fit(X, y)
+        super().fit(X, y)
         result = permutation_importance(
             self._model, X, y, n_repeats=5, random_state=42, n_jobs=-1
         )
         self._perm_importance = result.importances_mean
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)
 
     def get_feature_importance(self) -> pd.Series | None:
         if self._perm_importance is None:
@@ -59,113 +93,52 @@ class HGBModel:
             self._perm_importance, index=self._feature_names
         ).sort_values(ascending=False)
 
-    def get_params(self) -> dict:
-        return {**self._params, "model_type": "HGB"}
 
+class RFModel(SklearnAlphaModel):
+    _model_type = "RF"
 
-class RFModel:
-    def __init__(self, **params):
-        self._params = params
-        n_features = params.get("max_features", "sqrt")
-        self._model = RandomForestRegressor(
+    def _build_estimator(self, params: dict):
+        return RandomForestRegressor(
             n_estimators=params.get("n_estimators", 200),
             max_depth=params.get("max_depth", 4),
-            max_features=n_features,
+            max_features=params.get("max_features", "sqrt"),
             min_samples_leaf=params.get("min_samples_leaf", 50),
             random_state=42,
             n_jobs=-1,
         )
-        self._feature_names: list[str] = []
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
-        self._feature_names = list(X.columns)
-        self._model.fit(X, y)
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)
 
     def get_feature_importance(self) -> pd.Series | None:
         return pd.Series(
             self._model.feature_importances_, index=self._feature_names
         ).sort_values(ascending=False)
 
-    def get_params(self) -> dict:
-        return {**self._params, "model_type": "RF"}
 
+class LassoModel(_CoefImportanceMixin, SklearnAlphaModel):
+    _model_type = "Lasso"
 
-class LassoModel:
-    def __init__(self, **params):
-        self._params = params
-        self._model = LassoCV(
+    def _build_estimator(self, params: dict):
+        return LassoCV(
             cv=params.get("cv", 5),
             max_iter=params.get("max_iter", 5000),
         )
-        self._feature_names: list[str] = []
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
-        self._feature_names = list(X.columns)
-        self._model.fit(X, y)
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)
-
-    def get_feature_importance(self) -> pd.Series | None:
-        return pd.Series(
-            np.abs(self._model.coef_), index=self._feature_names
-        ).sort_values(ascending=False)
-
-    def get_params(self) -> dict:
-        return {**self._params, "model_type": "Lasso"}
 
 
-class RidgeModel:
-    def __init__(self, **params):
-        self._params = params
-        self._model = RidgeCV(
-            alphas=np.logspace(-5, 2, 50),
-        )
-        self._feature_names: list[str] = []
+class RidgeModel(_CoefImportanceMixin, SklearnAlphaModel):
+    _model_type = "Ridge"
 
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
-        self._feature_names = list(X.columns)
-        self._model.fit(X, y)
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)
-
-    def get_feature_importance(self) -> pd.Series | None:
-        return pd.Series(
-            np.abs(self._model.coef_), index=self._feature_names
-        ).sort_values(ascending=False)
-
-    def get_params(self) -> dict:
-        return {**self._params, "model_type": "Ridge"}
+    def _build_estimator(self, params: dict):
+        return RidgeCV(alphas=np.logspace(-5, 2, 50))
 
 
-class ElasticNetModel:
-    def __init__(self, **params):
-        self._params = params
-        self._model = ElasticNetCV(
+class ElasticNetModel(_CoefImportanceMixin, SklearnAlphaModel):
+    _model_type = "ElasticNet"
+
+    def _build_estimator(self, params: dict):
+        return ElasticNetCV(
             l1_ratio=params.get("l1_ratio", 0.5),
             cv=params.get("cv", 5),
             max_iter=params.get("max_iter", 5000),
         )
-        self._feature_names: list[str] = []
-
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
-        self._feature_names = list(X.columns)
-        self._model.fit(X, y)
-
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
-        return self._model.predict(X)
-
-    def get_feature_importance(self) -> pd.Series | None:
-        return pd.Series(
-            np.abs(self._model.coef_), index=self._feature_names
-        ).sort_values(ascending=False)
-
-    def get_params(self) -> dict:
-        return {**self._params, "model_type": "ElasticNet"}
 
 
 class FamaMacBethModel:
@@ -226,6 +199,53 @@ class FamaMacBethModel:
         return {**self._params, "model_type": "FamaMacBeth"}
 
 
+class EnsembleModel:
+    """Simple average of HGB and Lasso predictions."""
+
+    def __init__(self, **params):
+        self._params = params
+        self._hgb = HGBModel(**_DEFAULT_PARAMS["HGB"])
+        self._lasso = LassoModel(**_DEFAULT_PARAMS["Lasso"])
+        self._feature_names: list[str] = []
+        self._tier1_cols: list[str] = []
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
+        from features import _TIER1_CORE, FEATURE_GROUPS
+        engineered = []
+        for group in FEATURE_GROUPS.values():
+            for f in group:
+                if not f.endswith("_xs"):
+                    engineered.append(f)
+        tier1_all = list(_TIER1_CORE) + sorted(set(engineered))
+        self._tier1_cols = [c for c in tier1_all if c in X.columns]
+        if not self._tier1_cols:
+            self._tier1_cols = list(X.columns)
+
+        self._feature_names = list(X.columns)
+        self._hgb.fit(X, y)
+        self._lasso.fit(X[self._tier1_cols], y)
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        hgb_pred = self._hgb.predict(X)
+        lasso_pred = self._lasso.predict(X[self._tier1_cols])
+        return (hgb_pred + lasso_pred) / 2.0
+
+    def get_feature_importance(self) -> pd.Series | None:
+        hgb_imp = self._hgb.get_feature_importance()
+        lasso_imp = self._lasso.get_feature_importance()
+        if hgb_imp is None and lasso_imp is None:
+            return None
+        if hgb_imp is None:
+            return lasso_imp
+        if lasso_imp is None:
+            return hgb_imp
+        combined = hgb_imp.add(lasso_imp, fill_value=0.0) / 2.0
+        return combined.sort_values(ascending=False)
+
+    def get_params(self) -> dict:
+        return {**self._params, "model_type": "Ensemble"}
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -237,11 +257,13 @@ _REGISTRY: dict[str, type] = {
     "Ridge": RidgeModel,
     "ElasticNet": ElasticNetModel,
     "FamaMacBeth": FamaMacBethModel,
+    "Ensemble": EnsembleModel,
 }
 
 _FEATURE_TIERS: dict[str, int] = {
     "HGB": 2, "RF": 2,
     "Lasso": 1, "Ridge": 1, "ElasticNet": 1, "FamaMacBeth": 1,
+    "Ensemble": 2,
 }
 
 _DEFAULT_PARAMS: dict[str, dict] = {
@@ -251,6 +273,7 @@ _DEFAULT_PARAMS: dict[str, dict] = {
     "Ridge": {},
     "ElasticNet": {"l1_ratio": 0.5, "cv": 5, "max_iter": 5000},
     "FamaMacBeth": {},
+    "Ensemble": {},
 }
 
 _PARAM_RANGES: dict[str, dict] = {
@@ -277,6 +300,7 @@ _PARAM_RANGES: dict[str, dict] = {
         "max_iter": {"min": 1000, "max": 10000, "default": 5000, "step": 1000},
     },
     "FamaMacBeth": {},
+    "Ensemble": {},
 }
 
 
@@ -300,3 +324,20 @@ def get_param_ranges(name: str) -> dict:
 
 def get_feature_tier(name: str) -> int:
     return _FEATURE_TIERS[name]
+
+
+_HP_GRIDS: dict[str, dict[str, list]] = {
+    "HGB": {
+        "max_depth": [2, 3],
+        "learning_rate": [0.03, 0.05, 0.08],
+        "min_samples_leaf": [300, 500, 800],
+    },
+    "RF": {
+        "max_depth": [3, 4, 5],
+        "n_estimators": [100, 200],
+    },
+}
+
+
+def get_hp_grid(name: str) -> dict[str, list]:
+    return dict(_HP_GRIDS.get(name, {}))

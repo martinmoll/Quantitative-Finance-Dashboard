@@ -110,6 +110,9 @@ with wf_col4:
     if window_type == "rolling":
         rolling_window = st.slider("Rolling Window (months)", 24, 120, 60)
 
+auto_tune = st.checkbox("Auto-tune hyperparameters", value=False,
+                         help="Inner time-series CV to select HPs at each retrain point")
+
 # --- Portfolio Configuration ---
 st.header("Portfolio Configuration")
 port_col1, port_col2, port_col3, port_col4, port_col5 = st.columns(5)
@@ -133,6 +136,10 @@ construction_method = st.selectbox(
     ["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"],
 )
 
+tc_bps = 0.0
+if construction_method == "mvo":
+    tc_bps = st.slider("Transaction cost (bps)", min_value=0, max_value=50, value=10, step=5)
+
 # --- Action Buttons ---
 btn_col1, btn_col2 = st.columns(2)
 with btn_col1:
@@ -145,6 +152,7 @@ if run_clicked:
     pred_key = cache.prediction_key(
         model_name, model_params, retrain_freq,
         feature_cols=available_features, window_type=window_type,
+        auto_tune=auto_tune,
     )
     predictions = cache.get_predictions(pred_key)
 
@@ -155,6 +163,7 @@ if run_clicked:
             data=df, model=model, feature_cols=available_features,
             oos_start=oos_start, retrain_freq=retrain_freq,
             window_type=window_type, rolling_window=rolling_window,
+            auto_tune=auto_tune,
             progress_callback=lambda step, total, month: progress.progress(
                 step / total, text=f"Training... {month} ({step}/{total})",
             ),
@@ -164,13 +173,14 @@ if run_clicked:
         cache.save_predictions(pred_key, predictions)
         st.session_state.backtest_feature_importance = result.feature_importance
         st.session_state.backtest_train_dates = result.train_dates
+        st.session_state.backtest_tuned_params = result.tuned_params
     else:
         st.session_state.backtest_feature_importance = None
         st.session_state.backtest_train_dates = []
 
     port_key = cache.portfolio_key(
         pred_key, K, vol_tilt, regime_lookback,
-        strategy_key, K_short, construction_method,
+        strategy_key, K_short, construction_method, tc_bps=tc_bps,
     )
     portfolio = cache.get_portfolio(port_key)
 
@@ -179,7 +189,7 @@ if run_clicked:
             predictions=predictions, method=construction_method,
             K=K, strategy_type=strategy_key, K_short=K_short,
             vol_tilt=vol_tilt, regime_lookback=regime_lookback,
-            market_monthly=market_monthly,
+            market_monthly=market_monthly, tc_bps=tc_bps,
         )
         cache.save_portfolio(port_key, portfolio)
 

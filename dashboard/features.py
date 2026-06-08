@@ -128,23 +128,25 @@ def _build_engineered_features(df_slice):
     return feat.fillna(0.0)
 
 
+_TIER1_CORE = [
+    'ret_1_xs', 'ret_2_12_xs', 'ret_2_6_xs',
+    'bm_xs', 'ep_xs', 'cfp_xs', 'sp_xs',
+    'gpa_xs', 'roe_xs', 'roa_xs',
+    'vol_12m_xs', 'ivol_xs', 'beta_xs',
+    'log_me_xs',
+    'sue_xs', 'revision_xs', 'beat_xs',
+    'turnover_xs', 'illiq_12m_xs',
+    'mom_x_size_xs', 'val_x_prof_xs', 'mom_x_vol_xs',
+    'ret_vs_sector_xs', 'bm_vs_sector_xs', 'ret_vs_ind_xs',
+    'bm_vs_size_xs',
+]
+
+
 def build_features_linear(df_slice):
     """Tier 1: Conservative feature set for Lasso."""
     feat = pd.DataFrame(index=df_slice.index)
 
-    core = [
-        'ret_1_xs', 'ret_2_12_xs', 'ret_2_6_xs',
-        'bm_xs', 'ep_xs', 'cfp_xs', 'sp_xs',
-        'gpa_xs', 'roe_xs', 'roa_xs',
-        'vol_12m_xs', 'ivol_xs', 'beta_xs',
-        'log_me_xs',
-        'sue_xs', 'revision_xs', 'beat_xs',
-        'turnover_xs', 'illiq_12m_xs',
-        'mom_x_size_xs', 'val_x_prof_xs', 'mom_x_vol_xs',
-        'ret_vs_sector_xs', 'bm_vs_sector_xs', 'ret_vs_ind_xs',
-        'bm_vs_size_xs',
-    ]
-    for c in core:
+    for c in _TIER1_CORE:
         if c in df_slice.columns:
             feat[c] = df_slice[c]
 
@@ -219,18 +221,7 @@ def get_tier_defaults(tier: int) -> list[str]:
     Tier 2 (~118+ features): all _xs columns + engineered for tree models.
     """
     if tier == 1:
-        core = [
-            "ret_1_xs", "ret_2_12_xs", "ret_2_6_xs",
-            "bm_xs", "ep_xs", "cfp_xs", "sp_xs",
-            "gpa_xs", "roe_xs", "roa_xs",
-            "vol_12m_xs", "ivol_xs", "beta_xs",
-            "log_me_xs",
-            "sue_xs", "revision_xs", "beat_xs",
-            "turnover_xs", "illiq_12m_xs",
-            "mom_x_size_xs", "val_x_prof_xs", "mom_x_vol_xs",
-            "ret_vs_sector_xs", "bm_vs_sector_xs", "ret_vs_ind_xs",
-            "bm_vs_size_xs",
-        ]
+        core = list(_TIER1_CORE)
         engineered = []
         for group in FEATURE_GROUPS.values():
             for f in group:

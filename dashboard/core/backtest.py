@@ -1,11 +1,12 @@
 """Walk-forward prediction engine.
 
-Extracted from engine.py. Now accepts AlphaModel instances from the registry
+Accepts AlphaModel instances from the registry
 and supports both expanding and rolling windows.
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from itertools import product
 import pandas as pd
 import numpy as np
 from scipy.stats import spearmanr
@@ -18,13 +19,10 @@ OOS_START = "2015-01"
 @dataclass
 class BacktestResult:
     predictions: dict[str, pd.DataFrame]
-    monthly_returns: pd.Series
-    ic: pd.Series
-    holdings: dict[str, pd.DataFrame]
-    turnover: pd.Series
     feature_importance: pd.DataFrame | None
     train_dates: list[str]
     model_params: dict
+    tuned_params: dict[str, dict] = field(default_factory=dict)
 
 
 def run_walk_forward(
@@ -35,6 +33,7 @@ def run_walk_forward(
     retrain_freq: int = 12,
     window_type: str = "expanding",
     rolling_window: int | None = None,
+    auto_tune: bool = False,
     progress_callback=None,
 ) -> BacktestResult:
     all_months = sorted(data["ym"].unique())
@@ -44,6 +43,7 @@ def run_walk_forward(
     fitted_model = None
     predictions: dict[str, pd.DataFrame] = {}
     train_dates: list[str] = []
+    tuned_params: dict[str, dict] = {}
     total = len(oos_months)
 
     available_features = [c for c in feature_cols if c in data.columns]
@@ -63,7 +63,19 @@ def run_walk_forward(
                     progress_callback(step + 1, total, m)
                 continue
 
-            fitted_model = _clone_and_fit(model, train, available_features)
+            if auto_tune:
+                best_params = _tune_hyperparams(model, train, available_features)
+                if best_params is not None:
+                    tuned_params[m] = best_params
+                    from core.models import get_model
+                    base_params = model.get_params()
+                    model_type = base_params.get("model_type", "HGB")
+                    tuned_model = get_model(model_type, best_params)
+                    fitted_model = _fit_model(tuned_model, train, available_features)
+                else:
+                    fitted_model = _clone_and_fit(model, train, available_features)
+            else:
+                fitted_model = _clone_and_fit(model, train, available_features)
             train_dates.append(m)
 
         if fitted_model is None:
@@ -91,8 +103,6 @@ def run_walk_forward(
         if progress_callback:
             progress_callback(step + 1, total, m)
 
-    monthly_returns, holdings, ic, turnover = _compute_basic_portfolio(predictions)
-
     importance = None
     if fitted_model is not None:
         importance = fitted_model.get_feature_importance()
@@ -101,13 +111,10 @@ def run_walk_forward(
 
     return BacktestResult(
         predictions=predictions,
-        monthly_returns=monthly_returns,
-        ic=ic,
-        holdings=holdings,
-        turnover=turnover,
         feature_importance=importance,
         train_dates=train_dates,
         model_params=fitted_model.get_params() if fitted_model else {},
+        tuned_params=tuned_params,
     )
 
 
@@ -117,47 +124,89 @@ def _clone_and_fit(model, train: pd.DataFrame, feature_cols: list[str]):
     params = model.get_params()
     model_type = params.pop("model_type", "HGB")
     new_model = get_model(model_type, params)
+    return _fit_model(new_model, train, feature_cols)
+
+
+def _fit_model(model, train: pd.DataFrame, feature_cols: list[str]):
+    """Fit a model on training data."""
     X = train[feature_cols].fillna(0.0)
     y = train[TRAIN_TARGET]
-    new_model.fit(X, y)
-    return new_model
+    model.fit(X, y)
+    return model
 
 
-def _compute_basic_portfolio(predictions: dict[str, pd.DataFrame], K: int = 10):
-    """Compute equal-weight top-K portfolio from raw predictions."""
-    months = sorted(predictions.keys())
-    returns_dict: dict[str, float] = {}
-    holdings_dict: dict[str, pd.DataFrame] = {}
-    ic_dict: dict[str, float] = {}
-    turnover_dict: dict[str, float] = {}
-    prev_permnos: set | None = None
+def _tune_hyperparams(
+    model,
+    train: pd.DataFrame,
+    feature_cols: list[str],
+    n_folds: int = 3,
+) -> dict | None:
+    """Inner time-series CV to select hyperparameters via IC scoring."""
+    from core.models import get_model, get_hp_grid
 
-    for m in months:
-        df_m = predictions[m]
-        if len(df_m) < K:
-            continue
+    base_params = model.get_params()
+    model_type = base_params.get("model_type", "HGB")
+    grid = get_hp_grid(model_type)
 
-        valid = df_m[["pred", EVAL_TARGET]].dropna()
-        if len(valid) > 10:
-            ic_dict[m] = spearmanr(valid["pred"], valid[EVAL_TARGET])[0]
-        else:
-            ic_dict[m] = np.nan
+    if not grid:
+        return None
 
-        top = df_m.nlargest(K, "pred")
-        returns_dict[m] = top[EVAL_TARGET].mean()
-        holdings_dict[m] = top
+    param_names = list(grid.keys())
+    param_values = list(grid.values())
+    combos = [dict(zip(param_names, vals)) for vals in product(*param_values)]
 
-        curr_permnos = set(top["permno"])
-        if prev_permnos is not None:
-            overlap = len(curr_permnos & prev_permnos)
-            turnover_dict[m] = 1.0 - overlap / K
-        else:
-            turnover_dict[m] = np.nan
-        prev_permnos = curr_permnos
+    train_months = sorted(train["ym"].unique())
+    n_months = len(train_months)
+    if n_months < 36:
+        return None
 
-    return (
-        pd.Series(returns_dict).sort_index(),
-        holdings_dict,
-        pd.Series(ic_dict).sort_index(),
-        pd.Series(turnover_dict).sort_index(),
-    )
+    fold_size = 12
+    folds = []
+    for i in range(n_folds):
+        val_end = n_months - i * fold_size
+        val_start = val_end - fold_size
+        if val_start < 12:
+            break
+        val_months = set(train_months[val_start:val_end])
+        train_months_fold = set(train_months[:val_start])
+        folds.append((train_months_fold, val_months))
+
+    if not folds:
+        return None
+
+    best_ic = -np.inf
+    best_params = None
+
+    for combo in combos:
+        fold_ics = []
+        for train_set, val_set in folds:
+            fold_train = train[train["ym"].isin(train_set)]
+            fold_val = train[train["ym"].isin(val_set)]
+
+            if len(fold_train) < 10 or len(fold_val) < 10:
+                continue
+
+            try:
+                m = get_model(model_type, combo)
+                X_tr = fold_train[feature_cols].fillna(0.0)
+                y_tr = fold_train[TRAIN_TARGET]
+                m.fit(X_tr, y_tr)
+
+                X_val = fold_val[feature_cols].fillna(0.0)
+                preds = m.predict(X_val)
+                actual = fold_val[EVAL_TARGET].values
+
+                valid_mask = ~np.isnan(actual)
+                if valid_mask.sum() > 10:
+                    ic = spearmanr(preds[valid_mask], actual[valid_mask])[0]
+                    fold_ics.append(ic)
+            except Exception:
+                continue
+
+        if fold_ics:
+            mean_ic = np.mean(fold_ics)
+            if mean_ic > best_ic:
+                best_ic = mean_ic
+                best_params = combo
+
+    return best_params

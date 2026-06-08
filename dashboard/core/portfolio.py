@@ -74,7 +74,10 @@ def _compute_weights(
 
     elif method == "mvo":
         max_weight = params.get("max_weight", 0.15)
-        return _mvo_weights(selected, returns_history, max_weight)
+        prev_w = params.get("prev_weights")
+        tc_bps = params.get("tc_bps", 0.0)
+        return _mvo_weights(selected, returns_history, max_weight,
+                            prev_weights=prev_w, tc_bps=tc_bps)
 
     else:
         return np.ones(n) / n
@@ -113,6 +116,8 @@ def _mvo_weights(
     selected: pd.DataFrame,
     returns_history: pd.DataFrame | None,
     max_weight: float = 0.15,
+    prev_weights: np.ndarray | None = None,
+    tc_bps: float = 0.0,
 ) -> np.ndarray:
     n = len(selected)
     permnos = selected["permno"].values
@@ -120,8 +125,13 @@ def _mvo_weights(
 
     cov = _get_cov_matrix(permnos, returns_history, n, shrink=True)
 
+    tc_frac = tc_bps / 10_000
+    ref = prev_weights if prev_weights is not None else np.ones(n) / n
+
     def neg_sharpe(w):
         port_ret = w @ expected_returns
+        if tc_frac > 0:
+            port_ret -= tc_frac * np.sum(np.abs(w - ref))
         port_var = w @ cov @ w
         if port_var <= 0:
             return 0
@@ -205,10 +215,21 @@ def build_portfolio_series(
         else:
             ic_vals[m] = np.nan
 
+        mvo_prev = None
+        if method == "mvo" and prev_weights is not None:
+            top_permnos = df_m.nlargest(K, "pred")["permno"].values
+            mvo_prev = np.array([prev_weights.get(p, 0.0) for p in top_permnos])
+            pw_sum = mvo_prev.sum()
+            if pw_sum > 0:
+                mvo_prev = mvo_prev / pw_sum
+            else:
+                mvo_prev = None
+
         held = construct_portfolio(
             df_m, method=method, K=K, strategy_type=strategy_type,
             K_short=K_short, vol_tilt=vol_tilt,
-            returns_history=returns_history, **method_params,
+            returns_history=returns_history,
+            prev_weights=mvo_prev, **method_params,
         )
 
         port_ret = (held["weight"] * held[EVAL_TARGET]).sum()
@@ -220,8 +241,8 @@ def build_portfolio_series(
         holdings[m] = held
 
         curr_weights = pd.Series(0.0, index=df_m["permno"].values)
-        for _, row in held.iterrows():
-            curr_weights[row["permno"]] = row["weight"]
+        held_weights = held.set_index("permno")["weight"]
+        curr_weights.loc[held_weights.index] = held_weights.values
 
         if prev_weights is not None:
             aligned_c, aligned_p = curr_weights.align(prev_weights, fill_value=0.0)
