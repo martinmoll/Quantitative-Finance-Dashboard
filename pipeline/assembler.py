@@ -148,6 +148,7 @@ def append_to_dataset(new_data: pd.DataFrame) -> pd.DataFrame:
         existing = existing[~existing["ym"].isin(new_months)]
         combined = pd.concat([existing, new_data], ignore_index=True)
 
+    combined = combined.drop_duplicates(subset=["ym", "permno"], keep="first")
     combined = combined.sort_values(["ym", "permno"]).reset_index(drop=True)
 
     _backfill_forward_returns(combined)
@@ -169,7 +170,7 @@ def _backfill_forward_returns(df: pd.DataFrame):
         next_mask = df["ym"] == next_ym
 
         if df.loc[curr_mask, "y_raw"].isna().all():
-            next_month = df.loc[next_mask, ["permno", "ret_1"]].set_index("permno")
+            next_month = df.loc[next_mask, ["permno", "ret_1"]].drop_duplicates(subset="permno").set_index("permno")
             if "ret_1" in next_month.columns:
                 curr_permnos = df.loc[curr_mask, "permno"]
                 fwd_ret = curr_permnos.map(next_month["ret_1"])

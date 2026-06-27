@@ -145,6 +145,45 @@ def alpha_decay(
     return pd.Series(results)
 
 
+def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
+    """Out-of-sample R² (Campbell & Thompson 2008).
+
+    R²_OOS = 1 - Σ(r_i - r̂_i)² / Σ(r_i - r̄)²
+
+    where r̂_i are model forecasts and r̄ is the expanding-window
+    cross-sectional mean of realized returns up to (but not including)
+    each month.
+    """
+    months = sorted(predictions.keys())
+    ss_res = 0.0
+    ss_tot = 0.0
+    cumulative_returns: list[float] = []
+
+    for m in months:
+        df = predictions[m]
+        if "pred" not in df.columns or "y_raw" not in df.columns:
+            continue
+        valid = df[["pred", "y_raw"]].dropna()
+        if len(valid) < 5:
+            continue
+
+        if len(cumulative_returns) < 10:
+            cumulative_returns.extend(valid["y_raw"].tolist())
+            continue
+
+        mean_prev = np.mean(cumulative_returns)
+
+        residuals = (valid["y_raw"] - valid["pred"]).values
+        ss_res += float((residuals ** 2).sum())
+        ss_tot += float(((valid["y_raw"].values - mean_prev) ** 2).sum())
+
+        cumulative_returns.extend(valid["y_raw"].tolist())
+
+    if ss_tot == 0:
+        return np.nan
+    return 1.0 - ss_res / ss_tot
+
+
 def signal_staleness(
     turnover: pd.Series,
     threshold: float = 0.10,

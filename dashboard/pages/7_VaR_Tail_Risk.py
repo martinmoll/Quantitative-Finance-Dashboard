@@ -14,6 +14,10 @@ from core.risk import (
 from components.charts import STYLE, _base_layout
 from components.metrics import metric_row
 from components.theory import theory_section
+from components.interpretations import (
+    render_interpretation, interpret_var_comparison, interpret_kupiec,
+    interpret_skewness_kurtosis,
+)
 from components.workflow import render_workflow_status, render_empty_state
 
 st.set_page_config(page_title="VaR & Tail Risk", layout="wide")
@@ -71,6 +75,14 @@ display_df.loc["Cornish-Fisher", "Skew"] = f"{cf['skewness']:.2f}"
 display_df.loc["Cornish-Fisher", "Excess Kurt"] = f"{cf['excess_kurtosis']:.2f}"
 display_df = display_df.fillna("")
 st.dataframe(display_df, use_container_width=True)
+
+render_interpretation(interpret_var_comparison(
+    var_summary.loc["Parametric", "VaR"],
+    var_summary.loc["Historical", "VaR"],
+    var_summary.loc["Cornish-Fisher", "VaR"],
+    cf["skewness"],
+    cf["excess_kurtosis"],
+))
 
 # --- Return Distribution with VaR/CVaR lines ---
 st.markdown("---")
@@ -170,24 +182,9 @@ if bt["total"] > 0:
     with col4:
         st.metric("Kupiec p-value", f"{bt['kupiec_p']:.4f}")
 
-    if bt["kupiec_p"] > 0.05:
-        st.success(
-            f"VaR model passes Kupiec test (p={bt['kupiec_p']:.3f} > 0.05). "
-            f"Observed breach rate ({bt['breach_rate']:.1%}) is consistent with "
-            f"the expected {bt['expected_rate']:.0%}."
-        )
-    elif bt["breach_rate"] > bt["expected_rate"]:
-        st.error(
-            f"VaR model rejected by Kupiec test (p={bt['kupiec_p']:.3f}). "
-            f"Too many breaches ({bt['breach_rate']:.1%} vs expected "
-            f"{bt['expected_rate']:.0%}) — the model underestimates risk."
-        )
-    else:
-        st.warning(
-            f"VaR model rejected by Kupiec test (p={bt['kupiec_p']:.3f}). "
-            f"Too few breaches ({bt['breach_rate']:.1%} vs expected "
-            f"{bt['expected_rate']:.0%}) — the model may be overly conservative."
-        )
+    render_interpretation(interpret_kupiec(
+        bt["breach_rate"], bt["expected_rate"], bt["kupiec_p"],
+    ))
 
 # --- Component VaR ---
 st.markdown("---")
@@ -243,19 +240,9 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     skew = float(sp_stats.skew(rets.dropna()))
     st.metric("Skewness", f"{skew:.3f}")
-    if skew < -0.5:
-        st.caption("Left-skewed: large losses more frequent than large gains")
-    elif skew > 0.5:
-        st.caption("Right-skewed: large gains more frequent")
-    else:
-        st.caption("Approximately symmetric")
 with col2:
     kurt = float(sp_stats.kurtosis(rets.dropna()))
     st.metric("Excess Kurtosis", f"{kurt:.3f}")
-    if kurt > 1:
-        st.caption("Fat-tailed: extreme events more likely than normal")
-    else:
-        st.caption("Near-normal tail behavior")
 with col3:
     jb_stat, jb_p = sp_stats.jarque_bera(rets.dropna())
     st.metric("Jarque-Bera stat", f"{jb_stat:.2f}")
@@ -266,3 +253,5 @@ with col4:
     sortino = ann_ret / sortino_denom if sortino_denom > 0 else np.nan
     st.metric("Sortino Ratio", f"{sortino:.2f}")
     st.caption("Return per unit of downside risk")
+
+render_interpretation(interpret_skewness_kurtosis(skew, kurt))

@@ -8,6 +8,9 @@ from core.diagnostics import ks_test, alpha_decay, signal_staleness, compute_ic_
 from core.risk import factor_exposure
 from components.charts import traffic_light_dashboard, bar_chart, STYLE
 from components.theory import theory_section
+from components.interpretations import (
+    render_interpretation, interpret_ks_shift, interpret_alpha_decay,
+)
 from components.workflow import render_workflow_status, render_empty_state
 import plotly.graph_objects as go
 
@@ -53,6 +56,7 @@ if len(months) >= 2 and available_features:
                       delta_color=color)
         with ks_col2:
             st.dataframe(ks_results.head(20), use_container_width=True)
+        render_interpretation(interpret_ks_shift(pct_flagged, n_flagged, n_total))
 
         # KS heatmap over time
         if len(months) > 3:
@@ -106,13 +110,8 @@ if not decay.empty:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    if half_life:
-        if half_life < 3:
-            st.info(f"Half-life = {half_life} months → **monthly rebalancing** recommended.")
-        elif half_life < 9:
-            st.info(f"Half-life = {half_life} months → **quarterly rebalancing** may suffice.")
-        else:
-            st.info(f"Half-life = {half_life} months → **slower rebalancing** acceptable.")
+    ic_1m = decay.iloc[0] if len(decay) > 0 else 0
+    render_interpretation(interpret_alpha_decay(half_life, ic_1m))
 
 # --- Signal Staleness ---
 st.markdown("---")

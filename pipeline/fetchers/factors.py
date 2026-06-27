@@ -3,6 +3,7 @@
 import io
 import logging
 import zipfile
+import urllib.error
 import urllib.request
 
 import pandas as pd
@@ -62,25 +63,36 @@ def _download_french_csv(url: str) -> pd.DataFrame:
 def fetch_factors() -> pd.DataFrame:
     ensure_cache_dirs()
 
-    ff5 = _download_french_csv(_FF5_URL)
-    ff5.index.name = "ym"
+    try:
+        ff5 = _download_french_csv(_FF5_URL)
+        ff5.index.name = "ym"
 
-    mom = _download_french_csv(_MOM_URL)
-    mom.index.name = "ym"
-    mom.columns = ["Mom"]
+        mom = _download_french_csv(_MOM_URL)
+        mom.index.name = "ym"
+        mom.columns = ["Mom"]
 
-    combined = ff5.join(mom, how="left")
-    combined = combined.rename(columns={"Mkt-RF": "Mkt_RF"})
+        combined = ff5.join(mom, how="left")
+        combined = combined.rename(columns={"Mkt-RF": "Mkt_RF"})
 
-    if "RF" in combined.columns:
-        combined = combined.rename(columns={"RF": "rf_ff"})
+        if "RF" in combined.columns:
+            combined = combined.rename(columns={"RF": "rf_ff"})
 
-    combined["spy_ret"] = combined["Mkt_RF"] + combined["rf_ff"]
+        combined["spy_ret"] = combined["Mkt_RF"] + combined["rf_ff"]
 
-    cache_path = FACTORS_CACHE / "ff5_mom.parquet"
-    combined.to_parquet(cache_path)
+        cache_path = FACTORS_CACHE / "ff5_mom.parquet"
+        combined.to_parquet(cache_path)
 
-    return combined
+        return combined
+    except (OSError, urllib.error.URLError) as e:
+        logger.warning("Factor download failed (%s), trying local cache...", e)
+        cached = load_cached_factors()
+        if cached is not None:
+            logger.info("Using cached factors from %s", FACTORS_CACHE / "ff5_mom.parquet")
+            return cached
+        raise RuntimeError(
+            f"Cannot download FF5 factors and no local cache exists. "
+            f"Check your internet connection and retry. Original error: {e}"
+        ) from e
 
 
 def load_cached_factors() -> pd.DataFrame | None:

@@ -90,5 +90,5 @@ def vif_table(vif_df: pd.DataFrame):
         else:
             return "background-color: rgba(255, 68, 68, 0.3)"
 
-    styled = vif_df.style.applymap(color_vif, subset=["VIF"])
+    styled = vif_df.style.map(color_vif, subset=["VIF"])
     st.dataframe(styled, use_container_width=True)

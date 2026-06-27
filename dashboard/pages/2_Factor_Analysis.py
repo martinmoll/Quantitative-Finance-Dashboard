@@ -11,6 +11,9 @@ from core.factor_models import (
 from components.metrics import regression_table, vif_table
 from components.charts import STYLE, rolling_metric_chart
 from components.theory import theory_section
+from components.interpretations import (
+    render_interpretation, interpret_r_squared, interpret_vif,
+)
 from components.workflow import render_workflow_status, render_next_steps
 import plotly.graph_objects as go
 
@@ -71,6 +74,7 @@ reg_type = st.selectbox("Regression Model", model_types)
 if len(excess_returns) > 20:
     reg_result = run_regression(excess_returns, factors, model_type=reg_type)
     regression_table(reg_result)
+    render_interpretation(interpret_r_squared(reg_result["r_squared"], "factor"))
 else:
     st.warning("Not enough data for regression (need > 20 months).")
 
@@ -118,6 +122,10 @@ if ff5 is not None and reg_type == "FF5":
     if len(available) >= 2:
         vif_df = compute_vif(factors[available].dropna())
         vif_table(vif_df)
+        high_vif = vif_df[vif_df["VIF"] >= 5]
+        if not high_vif.empty:
+            for _, row in high_vif.iterrows():
+                st.caption(interpret_vif(row["feature"], row["VIF"]))
 
     # --- Wald Tests ---
     st.header("Wald Tests (Joint Significance)")

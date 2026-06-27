@@ -15,6 +15,10 @@ from components.charts import (
 )
 from components.metrics import metric_row, comparison_table
 from components.theory import theory_section
+from components.interpretations import (
+    render_interpretation, interpret_factor_exposure, interpret_ff5_alpha,
+    interpret_r_squared, interpret_turnover, interpret_sharpe,
+)
 from components.workflow import render_workflow_status, render_empty_state, render_next_steps
 import plotly.graph_objects as go
 
@@ -114,6 +118,7 @@ if ff5 is not None:
             with exp_cols[i]:
                 color = "normal" if abs(beta) < 0.10 else "inverse"
                 st.metric(factor, f"{beta:.3f}", delta_color=color)
+        render_interpretation(interpret_factor_exposure(exposure.to_dict()))
 
     alpha_result = factor_alpha(rets, ff5)
     if alpha_result is not None:
@@ -131,29 +136,55 @@ if ff5 is not None:
         with a4:
             st.metric("R-squared", f"{alpha_result['r_squared']:.3f}")
 
-        if alpha_result["p_value"] < 0.05 and alpha_result["annual_alpha"] > 0:
-            st.success(
-                f"Statistically significant positive alpha of "
-                f"{ann_alpha:.2%}/year (t={t:.2f}, p={p:.4f}, "
-                f"n={alpha_result['n_months']} months). "
-                f"The portfolio generates returns beyond what its factor exposures explain."
-            )
-        elif alpha_result["annual_alpha"] > 0:
-            st.warning(
-                f"Positive alpha of {ann_alpha:.2%}/year but not statistically "
-                f"significant (t={t:.2f}, p={p:.4f}). Need t > 2.0 (p < 0.05) "
-                f"to confidently claim true alpha."
-            )
-        elif alpha_result["p_value"] < 0.05:
-            st.error(
-                f"Statistically significant negative alpha of {ann_alpha:.2%}/year. "
-                f"Factor exposures alone would have performed better."
-            )
-        else:
-            st.info(
-                f"Alpha of {ann_alpha:.2%}/year is not statistically different from zero "
-                f"(t={t:.2f}, p={p:.4f})."
-            )
+        render_interpretation(interpret_ff5_alpha(
+            alpha_result["annual_alpha"], alpha_result["t_stat"],
+            alpha_result["p_value"], alpha_result["r_squared"],
+        ))
+        render_interpretation(interpret_r_squared(alpha_result["r_squared"], "factor"))
+
+    # --- Per-Method Factor Exposure Comparison ---
+    if len(method_results) >= 2:
+        st.markdown("#### Factor Exposure by Construction Method")
+        st.caption(
+            "Different weighting schemes create different factor tilts from the "
+            "same predictions. A method that loads heavily on SMB isn't generating "
+            "alpha — it's buying small caps."
+        )
+        method_exposures = {}
+        method_alphas = {}
+        for method_name, port in method_results.items():
+            m_rets = port["monthly_returns"]
+            m_exp = factor_exposure(m_rets, ff5)
+            if len(m_exp) > 0:
+                method_exposures[method_name] = m_exp
+            m_alpha = factor_alpha(m_rets, ff5)
+            if m_alpha is not None:
+                method_alphas[method_name] = m_alpha
+
+        if method_exposures:
+            import pandas as _pd
+            exp_df = _pd.DataFrame(method_exposures).T
+            exp_df.index.name = "Method"
+
+            def _color_exposure(val):
+                if abs(val) < 0.10:
+                    return ""
+                if abs(val) < 0.20:
+                    return "background-color: rgba(255, 184, 0, 0.3)"
+                return "background-color: rgba(255, 68, 68, 0.3)"
+
+            styled = exp_df.style.format("{:.3f}").map(_color_exposure)
+            st.dataframe(styled, use_container_width=True)
+
+            for method_name, m_exp in method_exposures.items():
+                with st.expander(f"Interpretation: {method_name}"):
+                    render_interpretation(interpret_factor_exposure(m_exp.to_dict()))
+                    if method_name in method_alphas:
+                        ma = method_alphas[method_name]
+                        render_interpretation(interpret_ff5_alpha(
+                            ma["annual_alpha"], ma["t_stat"],
+                            ma["p_value"], ma["r_squared"],
+                        ))
 
     rolling_exp = rolling_factor_exposure(rets, ff5, window=24)
     if not rolling_exp.dropna(how="all").empty:
@@ -191,6 +222,9 @@ with tc_col2:
         {"label": "Gross SR", "value": f"{gross_sr:.2f}"},
         {"label": "Net SR", "value": f"{net_sr:.2f}"},
     ])
+    render_interpretation(interpret_turnover(
+        tc["mean_monthly_turnover"], cost_bps, gross_sr,
+    ))
 
 # --- Method Comparison Table ---
 if len(method_results) >= 2:

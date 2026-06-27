@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
+    compute_r2_oos,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -14,6 +15,10 @@ from components.charts import (
 )
 from components.metrics import metric_row, comparison_table
 from components.theory import theory_section
+from components.interpretations import (
+    render_interpretation, interpret_sharpe, interpret_max_drawdown,
+    interpret_ff5_alpha, interpret_r2_oos, interpret_turnover,
+)
 from components.workflow import render_workflow_status, render_empty_state, render_next_steps
 import plotly.graph_objects as go
 
@@ -83,6 +88,15 @@ if alpha_res is not None:
         {"label": f"FF5 Alpha{sig}", "value": f"{alpha_res['annual_alpha']:.2%}"}
     )
 metric_row(kpi_cards)
+
+# --- Inline theory interpretations for KPI metrics ---
+render_interpretation(interpret_sharpe(perf["SR"]))
+render_interpretation(interpret_max_drawdown(perf["MDD"], perf["Calmar"]))
+if alpha_res is not None:
+    render_interpretation(interpret_ff5_alpha(
+        alpha_res["annual_alpha"], alpha_res["t_stat"],
+        alpha_res["p_value"], alpha_res["r_squared"],
+    ))
 
 if alpha_res is not None:
     theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
@@ -183,6 +197,18 @@ with fl_col2:
     st.metric("IC Required", f"{fl['IC_required']:.4f}")
     st.metric("Cost SR", f"{fl['Cost_SR']:.3f}")
 
+# --- R² Out-of-Sample ---
+st.markdown("---")
+st.header("Out-of-Sample R² (Campbell & Thompson 2008)")
+predictions = st.session_state.get("backtest_predictions")
+if predictions:
+    r2_oos = compute_r2_oos(predictions)
+    r2_col1, r2_col2 = st.columns([1, 3])
+    with r2_col1:
+        st.metric("R²_OOS", f"{r2_oos:.4f}" if not np.isnan(r2_oos) else "N/A")
+    with r2_col2:
+        render_interpretation(interpret_r2_oos(r2_oos))
+
 # --- Monthly Heatmap + Turnover ---
 st.markdown("---")
 hm_col1, hm_col2 = st.columns(2)
@@ -192,6 +218,14 @@ with hm_col1:
 with hm_col2:
     fig = bar_chart(turnover.dropna(), name="Monthly Turnover")
     st.plotly_chart(fig, use_container_width=True)
+
+# --- Turnover Interpretation ---
+mean_to = turnover.dropna().mean()
+render_interpretation(interpret_turnover(
+    mean_to, 10.0, perf["SR"],
+    ic_mean=ic_stats["mean_ic"],
+    K=active_params.get("K", 10),
+))
 
 # --- Feature Importance ---
 st.markdown("---")
