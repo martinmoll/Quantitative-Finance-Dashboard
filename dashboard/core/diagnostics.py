@@ -184,6 +184,81 @@ def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
     return 1.0 - ss_res / ss_tot
 
 
+def bootstrap_sharpe_ci(
+    returns: pd.Series,
+    n_boot: int = 5000,
+    ci: float = 0.95,
+    seed: int = 42,
+) -> dict:
+    """Bootstrap confidence interval for the annualized Sharpe ratio."""
+    s = returns.dropna().values
+    if len(s) < 6:
+        return {"point": np.nan, "lo": np.nan, "hi": np.nan, "ci": ci}
+
+    rng = np.random.default_rng(seed)
+    n = len(s)
+    boot_srs = np.empty(n_boot)
+
+    for i in range(n_boot):
+        sample = rng.choice(s, size=n, replace=True)
+        mu = sample.mean() * 12
+        sigma = sample.std(ddof=1) * np.sqrt(12)
+        boot_srs[i] = mu / sigma if sigma > 0 else np.nan
+
+    alpha = (1 - ci) / 2
+    lo, hi = float(np.nanpercentile(boot_srs, alpha * 100)), float(np.nanpercentile(boot_srs, (1 - alpha) * 100))
+    point = float(np.nanmean(s) * 12 / (np.std(s, ddof=1) * np.sqrt(12))) if np.std(s, ddof=1) > 0 else np.nan
+
+    return {"point": point, "lo": lo, "hi": hi, "ci": ci}
+
+
+def bootstrap_alpha_ci(
+    portfolio_returns: pd.Series,
+    ff5_factors: pd.DataFrame,
+    n_boot: int = 5000,
+    ci: float = 0.95,
+    seed: int = 42,
+) -> dict:
+    """Bootstrap confidence interval for annualized FF5 alpha."""
+    from core.risk import _ff5_available
+    available = _ff5_available(ff5_factors)
+    common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
+    if len(common) < 12:
+        return {"point": np.nan, "lo": np.nan, "hi": np.nan, "ci": ci}
+
+    y = portfolio_returns.loc[common].values
+    rf = ff5_factors.loc[common, "RF"].values if "RF" in ff5_factors.columns else np.zeros(len(common))
+    y_excess = y - rf
+    X = ff5_factors.loc[common, available].values
+    X_const = np.column_stack([np.ones(len(common)), X])
+
+    rng = np.random.default_rng(seed)
+    n = len(common)
+    boot_alphas = np.empty(n_boot)
+
+    for i in range(n_boot):
+        idx = rng.choice(n, size=n, replace=True)
+        y_b = y_excess[idx]
+        X_b = X_const[idx]
+        try:
+            beta = np.linalg.lstsq(X_b, y_b, rcond=None)[0]
+            boot_alphas[i] = beta[0] * 12
+        except np.linalg.LinAlgError:
+            boot_alphas[i] = np.nan
+
+    alpha_frac = (1 - ci) / 2
+    lo = float(np.nanpercentile(boot_alphas, alpha_frac * 100))
+    hi = float(np.nanpercentile(boot_alphas, (1 - alpha_frac) * 100))
+
+    try:
+        beta_full = np.linalg.lstsq(X_const, y_excess, rcond=None)[0]
+        point = float(beta_full[0] * 12)
+    except np.linalg.LinAlgError:
+        point = np.nan
+
+    return {"point": point, "lo": lo, "hi": hi, "ci": ci}
+
+
 def signal_staleness(
     turnover: pd.Series,
     threshold: float = 0.10,

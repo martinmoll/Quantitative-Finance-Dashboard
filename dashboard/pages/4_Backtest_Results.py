@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
-    compute_r2_oos,
+    compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -96,6 +96,10 @@ perf = compute_performance_metrics(rets)
 ff5 = st.session_state.get("ff5_factors")
 alpha_res = factor_alpha(rets, ff5) if ff5 is not None else None
 
+# --- Bootstrap CIs ---
+sr_ci = bootstrap_sharpe_ci(rets)
+alpha_ci = bootstrap_alpha_ci(rets, ff5) if ff5 is not None else None
+
 # --- Tabs ---
 tab_overview, tab_signal, tab_attribution, tab_costs, tab_compare = st.tabs(
     ["Overview", "Signal quality", "Attribution", "Turnover & costs", "Compare"]
@@ -112,8 +116,11 @@ with tab_overview:
     mdd_accent = C["negative"]
     calmar_accent = C["positive"] if perf["Calmar"] >= 1.0 else C["warning"]
 
+    sr_ci_str = f"95% CI [{sr_ci['lo']:.2f}, {sr_ci['hi']:.2f}]" if not np.isnan(sr_ci["lo"]) else None
+
     kpi_cards = [
-        {"label": "Sharpe", "value": f"{perf['SR']:.2f}", "accent": sr_accent, "variant": "bar"},
+        {"label": "Sharpe", "value": f"{perf['SR']:.2f}", "accent": sr_accent, "variant": "bar",
+         "delta": sr_ci_str, "delta_color": C["text_secondary"]},
         {"label": "Ann. Return", "value": f"{perf['Ann Return']:.1%}", "accent": ret_accent, "variant": "bar"},
         {"label": "Ann. Vol", "value": f"{perf['Ann Vol']:.1%}", "accent": vol_accent, "variant": "bar"},
         {"label": "Max DD", "value": f"{perf['MDD']:.1%}", "accent": mdd_accent, "variant": "bar"},
@@ -123,16 +130,32 @@ with tab_overview:
     if alpha_res is not None:
         sig = "**" if alpha_res["p_value"] < 0.01 else "*" if alpha_res["p_value"] < 0.05 else ""
         alpha_accent = C["positive"] if alpha_res["annual_alpha"] > 0 and alpha_res["p_value"] < 0.05 else C["primary"]
+        alpha_ci_str = None
+        if alpha_ci is not None and not np.isnan(alpha_ci["lo"]):
+            alpha_ci_str = f"95% CI [{alpha_ci['lo']:.1%}, {alpha_ci['hi']:.1%}]"
         kpi_cards.append({
             "label": "FF5 Alpha",
             "value": f"{alpha_res['annual_alpha']:.1%}{sig}",
             "accent": alpha_accent,
             "variant": "bar",
+            "delta": alpha_ci_str,
+            "delta_color": C["text_secondary"],
         })
     metric_card_row(kpi_cards)
 
-    # Compact interpretation banner
-    render_interpretation(interpret_sharpe(perf["SR"]))
+    # Compact interpretation banner — include CI in headline
+    sr_val = perf["SR"]
+    ci_note = f' <span class="mono">[{sr_ci["lo"]:.2f}, {sr_ci["hi"]:.2f}]</span>' if not np.isnan(sr_ci["lo"]) else ""
+    interp = interpret_sharpe(sr_val)
+    if interp and interp.get("text"):
+        sentences = interp["text"].split(". ", 1)
+        headline = sentences[0].rstrip(".") + ci_note
+        detail = sentences[1] if len(sentences) > 1 else None
+        zero_in_ci = not np.isnan(sr_ci["lo"]) and sr_ci["lo"] <= 0
+        if zero_in_ci and detail:
+            detail += (" Note: the 95% bootstrap CI includes zero, meaning the positive "
+                       "Sharpe is not statistically distinguishable from chance at this sample size.")
+        banner(interp["level"], headline, detail)
 
     if alpha_res is not None:
         theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")

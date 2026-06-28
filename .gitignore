@@ -1,21 +1,37 @@
-#Markdown documents
-ml_cheatsheet.md
-quant_cheatsheet.md
+# Python bytecode
+__pycache__/
+*.pyc
 
-# Large data files
-Data/alpha_dataset_v2.csv
+# Data files (auto-generated on first run)
+Data/
 
 # Dashboard cache
 dashboard/.cache/
 
+# Design handoff / working docs
+dashboard/design_handoff*/
+claude_design_briefing.md
+
+# Internal docs (plans, specs, archives, course notes)
+docs/
+learning/
+
+# Claude Code local settings
+.claude/settings.local.json
+
 # Superpowers brainstorm sessions
 .superpowers/
 
-# Python bytecode
-__pycache__/
-
-# Jupyter notebooks (kept locally, not tracked)
-Code/*.ipynb
-
 # Pipeline cache
 pipeline/cache/
+
+# Jupyter notebooks
+Code/*.ipynb
+
+# Cheatsheets (local reference)
+ml_cheatsheet.md
+quant_cheatsheet.md
+
+# OS files
+.DS_Store
+Thumbs.db

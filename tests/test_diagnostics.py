@@ -8,6 +8,8 @@ from core.diagnostics import (
     ks_test,
     alpha_decay,
     signal_staleness,
+    bootstrap_sharpe_ci,
+    bootstrap_alpha_ci,
 )
 
 
@@ -78,3 +80,32 @@ def test_signal_staleness():
     result = signal_staleness(turnover, threshold=0.10, consecutive=3)
     assert "stale" in result.columns
     assert result["stale"].any()
+
+
+def test_bootstrap_sharpe_ci(sample_returns):
+    result = bootstrap_sharpe_ci(sample_returns, n_boot=1000)
+    assert "point" in result and "lo" in result and "hi" in result
+    assert not np.isnan(result["point"])
+    assert result["lo"] < result["point"] < result["hi"]
+    assert result["ci"] == 0.95
+
+
+def test_bootstrap_sharpe_ci_short_series():
+    short = pd.Series([0.01, 0.02, -0.01])
+    result = bootstrap_sharpe_ci(short)
+    assert np.isnan(result["point"])
+
+
+def test_bootstrap_alpha_ci(sample_returns, sample_ff5):
+    common = sample_returns.index.intersection(sample_ff5.index)
+    rets = sample_returns.loc[common]
+    result = bootstrap_alpha_ci(rets, sample_ff5, n_boot=1000)
+    assert "point" in result and "lo" in result and "hi" in result
+    assert not np.isnan(result["point"])
+    assert result["lo"] < result["hi"]
+
+
+def test_bootstrap_alpha_ci_insufficient_data(sample_ff5):
+    short = pd.Series([0.01] * 5, index=sample_ff5.index[:5])
+    result = bootstrap_alpha_ci(short, sample_ff5, n_boot=100)
+    assert np.isnan(result["point"])
