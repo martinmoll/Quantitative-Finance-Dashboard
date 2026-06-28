@@ -1,5 +1,5 @@
 # dashboard/pages/5_Portfolio_Construction.py
-"""Page 5: Portfolio Construction & Risk Analysis."""
+"""Page 5: Portfolio Construction & Risk Analysis — tabbed layout."""
 
 import streamlit as st
 import pandas as pd
@@ -13,18 +13,18 @@ from core.risk import (
 from components.charts import (
     sector_allocation_chart, risk_pie_chart, bar_chart, STYLE,
 )
-from components.metrics import metric_row, comparison_table
+from components.metrics import metric_card, metric_card_row, metric_row, banner, comparison_table
 from components.theory import theory_section
 from components.interpretations import (
     render_interpretation, interpret_factor_exposure, interpret_ff5_alpha,
     interpret_r_squared, interpret_turnover, interpret_sharpe,
 )
 from components.workflow import render_workflow_status, render_empty_state, render_next_steps
+from components.theme import inject_theme, COLORS, FONT_MONO, FONT_SANS
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Portfolio Construction", layout="wide")
-st.title("Portfolio Construction & Risk")
-render_workflow_status("portfolio")
+inject_theme()
 
 if render_empty_state("portfolio"):
     st.stop()
@@ -35,211 +35,282 @@ params = st.session_state.get("backtest_params")
 ff5 = st.session_state.get("ff5_factors")
 market = st.session_state.get("market_monthly")
 
+C = COLORS
+
+# --- Header ---
+head_left, head_right = st.columns([2, 1])
+with head_left:
+    st.markdown(
+        f'<h1 style="font-family:{FONT_SANS};font-size:28px;font-weight:700;'
+        f'color:{C["text"]};margin:0;">Portfolio Construction & Risk</h1>',
+        unsafe_allow_html=True,
+    )
+    model_name = params.get("model_name", "—")
+    strategy = params.get("strategy_type", "long_only").replace("_", "-")
+    K = params.get("K", 10)
+    method = params.get("construction_method", "equal_weight")
+    subtitle = f"{model_name} &middot; {strategy} &middot; K={K} &middot; {method}"
+    st.markdown(
+        f'<p style="font-family:{FONT_SANS};font-size:13px;color:{C["text_secondary"]};'
+        f'margin:4px 0 0;">{subtitle}</p>',
+        unsafe_allow_html=True,
+    )
+with head_right:
+    construction_method = st.selectbox(
+        "Construction method",
+        ["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"],
+        index=["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"].index(method)
+        if method in ["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"] else 0,
+        label_visibility="collapsed",
+    )
+
+render_workflow_status("portfolio")
+
 theory_section("Portfolio Construction Methods", "portfolio_construction")
 
-# --- Method Comparison ---
-st.header("Compare Construction Methods")
+# --- Build method results for comparison ---
 methods = ["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"]
-selected_methods = st.multiselect("Methods to compare", methods, default=["equal_weight", "inverse_vol"])
+st.sidebar.header("Compare Methods")
+selected_methods = st.sidebar.multiselect("Methods to compare", methods, default=["equal_weight", "inverse_vol"])
 
 method_results = {}
-for method in selected_methods:
+for m in selected_methods:
     port = build_portfolio_series(
-        predictions=predictions, method=method,
+        predictions=predictions, method=m,
         K=params["K"], strategy_type=params["strategy_type"],
         K_short=params["K_short"], vol_tilt=params["vol_tilt"],
         regime_lookback=params["regime_lookback"], market_monthly=market,
     )
-    method_results[method] = port
+    method_results[m] = port
 
-# --- Sector Allocation ---
-st.header("Sector Allocation")
-if result["holdings"]:
-    fig = sector_allocation_chart(result["holdings"], params["strategy_type"])
-    st.plotly_chart(fig, use_container_width=True)
+# --- Tabs ---
+tab_alloc, tab_holdings, tab_risk, tab_costs, tab_compare = st.tabs(
+    ["Allocation", "Holdings", "Risk & factors", "Costs", "Compare methods"]
+)
 
-# --- Holdings Table ---
-st.header("Current Holdings")
-if result["holdings"]:
-    last_month = sorted(result["holdings"].keys())[-1]
-    held = result["holdings"][last_month].copy()
-    display_cols = []
-    for c in ["side", "permno", "sector", "pred", "y_raw", "weight"]:
-        if c in held.columns:
-            display_cols.append(c)
-    show = held[display_cols].copy()
-    if "pred" in show.columns:
-        show["pred"] = show["pred"].round(4)
-    if "y_raw" in show.columns:
-        show["y_raw"] = (show["y_raw"] * 100).round(2).astype(str) + "%"
-    if "weight" in show.columns:
-        show["weight"] = (show["weight"] * 100).round(2).astype(str) + "%"
-    st.markdown(f"**{last_month}** ({len(held)} positions)")
-    st.dataframe(show.reset_index(drop=True), use_container_width=True)
+# =========================================================================
+# ALLOCATION TAB
+# =========================================================================
+with tab_alloc:
+    holdings = result.get("holdings", {})
+    if holdings:
+        last_month = sorted(holdings.keys())[-1]
+        held = holdings[last_month]
+        n_pos = len(held)
+        weight_col = held["weight"] if "weight" in held.columns else pd.Series()
+        eff_n = 1.0 / (weight_col ** 2).sum() if len(weight_col) > 0 and weight_col.sum() > 0 else 0
+        top10_w = weight_col.abs().nlargest(10).sum() if len(weight_col) > 0 else 0
 
-# --- Risk Decomposition ---
-if len(selected_methods) >= 1:
+        alloc_cards = [
+            {"label": "Positions", "value": str(n_pos), "accent": C["primary"], "variant": "bar"},
+            {"label": "Effective N", "value": f"{eff_n:.1f}", "accent": C["primary"], "variant": "bar"},
+            {"label": "Top-10 Weight", "value": f"{top10_w:.1%}", "accent": C["warning"] if top10_w > 0.6 else C["primary"], "variant": "bar"},
+        ]
+        if params.get("strategy_type") == "long_short" and "side" in held.columns:
+            net_exp = weight_col.sum()
+            alloc_cards.append({"label": "Net Exposure", "value": f"{net_exp:.1%}", "accent": C["primary"], "variant": "bar"})
+        metric_card_row(alloc_cards)
+
     st.markdown("---")
-    st.header("Risk Decomposition")
-    rc_cols = st.columns(len(selected_methods))
-    for i, method in enumerate(selected_methods):
-        with rc_cols[i]:
-            st.subheader(method)
-            port = method_results[method]
-            if port["holdings"]:
-                last_m = sorted(port["holdings"].keys())[-1]
-                held = port["holdings"][last_m]
-                if "weight" in held.columns:
-                    w = held["weight"].abs().values
-                    n = len(w)
-                    cov = np.eye(n) * 0.01
-                    rc = risk_contribution(w / w.sum(), cov)
-                    if "sector" in held.columns:
-                        rc.index = [
-                            f"{p} ({s})" for p, s in
-                            zip(held["permno"].values, held["sector"].values)
-                        ]
-                    else:
-                        rc.index = [str(p) for p in held["permno"].values]
-                    fig = risk_pie_chart(rc)
-                    st.plotly_chart(fig, use_container_width=True)
-
-# --- Factor Exposure ---
-if ff5 is not None:
-    st.markdown("---")
-    st.header("Factor Exposure & Alpha")
-    theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
-
-    rets = result["monthly_returns"]
-    exposure = factor_exposure(rets, ff5)
-    if len(exposure) > 0:
-        exp_cols = st.columns(len(exposure))
-        for i, (factor, beta) in enumerate(exposure.items()):
-            with exp_cols[i]:
-                color = "normal" if abs(beta) < 0.10 else "inverse"
-                st.metric(factor, f"{beta:.3f}", delta_color=color)
-        render_interpretation(interpret_factor_exposure(exposure.to_dict()))
-
-    alpha_result = factor_alpha(rets, ff5)
-    if alpha_result is not None:
-        st.markdown("#### Jensen's Alpha")
-        a1, a2, a3, a4 = st.columns(4)
-        with a1:
-            ann_alpha = alpha_result["annual_alpha"]
-            st.metric("Annualized Alpha", f"{ann_alpha:.2%}")
-        with a2:
-            t = alpha_result["t_stat"]
-            st.metric("t-statistic", f"{t:.2f}")
-        with a3:
-            p = alpha_result["p_value"]
-            st.metric("p-value", f"{p:.4f}")
-        with a4:
-            st.metric("R-squared", f"{alpha_result['r_squared']:.3f}")
-
-        render_interpretation(interpret_ff5_alpha(
-            alpha_result["annual_alpha"], alpha_result["t_stat"],
-            alpha_result["p_value"], alpha_result["r_squared"],
-        ))
-        render_interpretation(interpret_r_squared(alpha_result["r_squared"], "factor"))
-
-    # --- Per-Method Factor Exposure Comparison ---
-    if len(method_results) >= 2:
-        st.markdown("#### Factor Exposure by Construction Method")
-        st.caption(
-            "Different weighting schemes create different factor tilts from the "
-            "same predictions. A method that loads heavily on SMB isn't generating "
-            "alpha — it's buying small caps."
-        )
-        method_exposures = {}
-        method_alphas = {}
-        for method_name, port in method_results.items():
-            m_rets = port["monthly_returns"]
-            m_exp = factor_exposure(m_rets, ff5)
-            if len(m_exp) > 0:
-                method_exposures[method_name] = m_exp
-            m_alpha = factor_alpha(m_rets, ff5)
-            if m_alpha is not None:
-                method_alphas[method_name] = m_alpha
-
-        if method_exposures:
-            import pandas as _pd
-            exp_df = _pd.DataFrame(method_exposures).T
-            exp_df.index.name = "Method"
-
-            def _color_exposure(val):
-                if abs(val) < 0.10:
-                    return ""
-                if abs(val) < 0.20:
-                    return "background-color: rgba(255, 184, 0, 0.3)"
-                return "background-color: rgba(255, 68, 68, 0.3)"
-
-            styled = exp_df.style.format("{:.3f}").map(_color_exposure)
-            st.dataframe(styled, use_container_width=True)
-
-            for method_name, m_exp in method_exposures.items():
-                with st.expander(f"Interpretation: {method_name}"):
-                    render_interpretation(interpret_factor_exposure(m_exp.to_dict()))
-                    if method_name in method_alphas:
-                        ma = method_alphas[method_name]
-                        render_interpretation(interpret_ff5_alpha(
-                            ma["annual_alpha"], ma["t_stat"],
-                            ma["p_value"], ma["r_squared"],
-                        ))
-
-    rolling_exp = rolling_factor_exposure(rets, ff5, window=24)
-    if not rolling_exp.dropna(how="all").empty:
-        fig = go.Figure()
-        for col in rolling_exp.columns:
-            fig.add_trace(go.Scatter(
-                x=rolling_exp.index, y=rolling_exp[col].values, name=col,
-            ))
-        fig.add_hline(y=0.10, line_dash="dash", line_color=STYLE["warning"])
-        fig.add_hline(y=-0.10, line_dash="dash", line_color=STYLE["warning"])
-        fig.update_layout(
-            title="Rolling 24-Month Factor Exposures",
-            template=STYLE["template"], height=400,
-            paper_bgcolor=STYLE["bg"], plot_bgcolor=STYLE["bg"],
-        )
+    st.subheader("Sector Allocation Over Time")
+    if result["holdings"]:
+        fig = sector_allocation_chart(result["holdings"], params["strategy_type"])
         st.plotly_chart(fig, use_container_width=True)
 
-# --- Turnover & Costs ---
-st.markdown("---")
-st.header("Turnover & Transaction Costs")
-tc_col1, tc_col2 = st.columns(2)
-with tc_col1:
-    fig = bar_chart(result["turnover"].dropna(), name="Monthly Turnover")
-    st.plotly_chart(fig, use_container_width=True)
-with tc_col2:
-    cost_bps = st.number_input("Cost per trade (bps)", value=10.0, step=5.0, key="tc_bps")
-    ann_vol = result["monthly_returns"].std() * np.sqrt(12)
-    tc = transaction_cost_drag(result["turnover"], cost_bps, ann_vol)
-    perf = compute_performance_metrics(result["monthly_returns"])
-    gross_sr = perf["SR"]
-    net_sr = gross_sr - tc["Cost_SR"]
-    metric_row([
-        {"label": "Avg Monthly TO", "value": f"{tc['mean_monthly_turnover']:.1%}"},
-        {"label": "TC Drag (annual)", "value": f"{tc['TC_annual']:.2%}"},
-        {"label": "Gross SR", "value": f"{gross_sr:.2f}"},
-        {"label": "Net SR", "value": f"{net_sr:.2f}"},
-    ])
-    render_interpretation(interpret_turnover(
-        tc["mean_monthly_turnover"], cost_bps, gross_sr,
-    ))
+# =========================================================================
+# HOLDINGS TAB
+# =========================================================================
+with tab_holdings:
+    st.subheader("Current Holdings")
+    if result["holdings"]:
+        last_month = sorted(result["holdings"].keys())[-1]
+        held = result["holdings"][last_month].copy()
+        display_cols = []
+        for c in ["side", "permno", "sector", "pred", "y_raw", "weight"]:
+            if c in held.columns:
+                display_cols.append(c)
+        show = held[display_cols].copy()
+        if "pred" in show.columns:
+            show["pred"] = show["pred"].round(4)
+        if "y_raw" in show.columns:
+            show["y_raw"] = (show["y_raw"] * 100).round(2).astype(str) + "%"
+        if "weight" in show.columns:
+            show["weight"] = (show["weight"] * 100).round(2).astype(str) + "%"
+        st.markdown(f"**{last_month}** ({len(held)} positions)")
+        st.dataframe(show.reset_index(drop=True), use_container_width=True)
 
-# --- Method Comparison Table ---
-if len(method_results) >= 2:
-    st.markdown("---")
-    st.header("Method Comparison")
-    comp = []
-    for method, port in method_results.items():
-        p = compute_performance_metrics(port["monthly_returns"])
-        p["Strategy"] = method
-        p["Mean Turnover"] = port["turnover"].dropna().mean()
-        ann_vol_m = port["monthly_returns"].std() * np.sqrt(12)
-        tc_m = transaction_cost_drag(port["turnover"], cost_bps, ann_vol_m)
-        p["TC Drag"] = tc_m["TC_annual"]
-        p["Net SR"] = p["SR"] - tc_m["Cost_SR"]
-        comp.append(p)
-    comparison_table(comp)
+# =========================================================================
+# RISK & FACTORS TAB
+# =========================================================================
+with tab_risk:
+    risk_left, risk_right = st.columns(2)
+
+    with risk_left:
+        st.subheader("Risk Decomposition")
+        if len(selected_methods) >= 1:
+            for m_name in selected_methods[:2]:
+                port = method_results[m_name]
+                if port["holdings"]:
+                    last_m = sorted(port["holdings"].keys())[-1]
+                    held = port["holdings"][last_m]
+                    if "weight" in held.columns:
+                        w = held["weight"].abs().values
+                        n = len(w)
+                        cov = np.eye(n) * 0.01
+                        rc = risk_contribution(w / w.sum(), cov)
+                        if "sector" in held.columns:
+                            rc.index = [
+                                f"{p} ({s})" for p, s in
+                                zip(held["permno"].values, held["sector"].values)
+                            ]
+                        else:
+                            rc.index = [str(p) for p in held["permno"].values]
+                        fig = risk_pie_chart(rc)
+                        fig.update_layout(title=f"Risk Contribution — {m_name}")
+                        st.plotly_chart(fig, use_container_width=True)
+
+    with risk_right:
+        if ff5 is not None:
+            st.subheader("Factor Exposure")
+            rets = result["monthly_returns"]
+            exposure = factor_exposure(rets, ff5)
+            if len(exposure) > 0:
+                exp_cards = []
+                for factor, beta in exposure.items():
+                    accent = C["primary"] if abs(beta) < 0.10 else C["warning"]
+                    exp_cards.append({"label": factor, "value": f"{beta:.3f}", "accent": accent, "variant": "bar"})
+                metric_card_row(exp_cards[:3])
+                if len(exp_cards) > 3:
+                    metric_card_row(exp_cards[3:])
+                render_interpretation(interpret_factor_exposure(exposure.to_dict()))
+
+            rolling_exp = rolling_factor_exposure(rets, ff5, window=24)
+            if not rolling_exp.dropna(how="all").empty:
+                fig = go.Figure()
+                for col in rolling_exp.columns:
+                    fig.add_trace(go.Scatter(
+                        x=rolling_exp.index, y=rolling_exp[col].values, name=col,
+                    ))
+                fig.add_hline(y=0.10, line_dash="dash", line_color=C["warning"])
+                fig.add_hline(y=-0.10, line_dash="dash", line_color=C["warning"])
+                fig.update_layout(
+                    template="alpha", title="Rolling 24-Month Factor Exposures",
+                    height=400,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Jensen's Alpha
+    if ff5 is not None:
+        st.markdown("---")
+        theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
+
+        rets = result["monthly_returns"]
+        alpha_result = factor_alpha(rets, ff5)
+        if alpha_result is not None:
+            st.subheader("Jensen's Alpha")
+            metric_card_row([
+                {"label": "Annualized Alpha", "value": f"{alpha_result['annual_alpha']:.2%}",
+                 "accent": C["positive"] if alpha_result["annual_alpha"] > 0 else C["negative"], "variant": "bar"},
+                {"label": "t-statistic", "value": f"{alpha_result['t_stat']:.2f}",
+                 "accent": C["positive"] if alpha_result["t_stat"] > 2 else C["warning"], "variant": "bar"},
+                {"label": "p-value", "value": f"{alpha_result['p_value']:.4f}",
+                 "accent": C["positive"] if alpha_result["p_value"] < 0.05 else C["warning"], "variant": "bar"},
+                {"label": "R-squared", "value": f"{alpha_result['r_squared']:.3f}",
+                 "accent": C["primary"], "variant": "bar"},
+            ])
+            render_interpretation(interpret_ff5_alpha(
+                alpha_result["annual_alpha"], alpha_result["t_stat"],
+                alpha_result["p_value"], alpha_result["r_squared"],
+            ))
+            render_interpretation(interpret_r_squared(alpha_result["r_squared"], "factor"))
+
+        # Per-method factor exposure comparison
+        if len(method_results) >= 2 and ff5 is not None:
+            st.markdown("---")
+            st.subheader("Factor Exposure by Construction Method")
+            method_exposures = {}
+            method_alphas = {}
+            for method_name, port in method_results.items():
+                m_rets = port["monthly_returns"]
+                m_exp = factor_exposure(m_rets, ff5)
+                if len(m_exp) > 0:
+                    method_exposures[method_name] = m_exp
+                m_alpha = factor_alpha(m_rets, ff5)
+                if m_alpha is not None:
+                    method_alphas[method_name] = m_alpha
+
+            if method_exposures:
+                exp_df = pd.DataFrame(method_exposures).T
+                exp_df.index.name = "Method"
+
+                def _color_exposure(val):
+                    if abs(val) < 0.10:
+                        return ""
+                    if abs(val) < 0.20:
+                        return f"background-color: rgba(245,177,61,0.15)"
+                    return f"background-color: rgba(244,106,106,0.15)"
+
+                styled = exp_df.style.format("{:.3f}").map(_color_exposure)
+                st.dataframe(styled, use_container_width=True)
+
+                for method_name, m_exp in method_exposures.items():
+                    with st.expander(f"Interpretation: {method_name}"):
+                        render_interpretation(interpret_factor_exposure(m_exp.to_dict()))
+                        if method_name in method_alphas:
+                            ma = method_alphas[method_name]
+                            render_interpretation(interpret_ff5_alpha(
+                                ma["annual_alpha"], ma["t_stat"],
+                                ma["p_value"], ma["r_squared"],
+                            ))
+
+# =========================================================================
+# COSTS TAB
+# =========================================================================
+with tab_costs:
+    st.subheader("Turnover & Transaction Costs")
+    tc_col1, tc_col2 = st.columns(2)
+    with tc_col1:
+        fig = bar_chart(result["turnover"].dropna(), name="Monthly Turnover")
+        st.plotly_chart(fig, use_container_width=True)
+    with tc_col2:
+        cost_bps = st.number_input("Cost per trade (bps)", value=10.0, step=5.0, key="tc_bps_port")
+        ann_vol = result["monthly_returns"].std() * np.sqrt(12)
+        tc = transaction_cost_drag(result["turnover"], cost_bps, ann_vol)
+        perf_cost = compute_performance_metrics(result["monthly_returns"])
+        gross_sr = perf_cost["SR"]
+        net_sr = gross_sr - tc["Cost_SR"]
+        metric_card_row([
+            {"label": "Avg Monthly TO", "value": f"{tc['mean_monthly_turnover']:.1%}", "variant": "bar", "accent": C["primary"]},
+            {"label": "TC Drag (annual)", "value": f"{tc['TC_annual']:.2%}", "variant": "bar", "accent": C["warning"]},
+        ])
+        metric_card_row([
+            {"label": "Gross SR", "value": f"{gross_sr:.2f}", "variant": "bar", "accent": C["positive"]},
+            {"label": "Net SR", "value": f"{net_sr:.2f}", "variant": "bar",
+             "accent": C["positive"] if net_sr > 0.5 else C["warning"]},
+        ])
+        render_interpretation(interpret_turnover(
+            tc["mean_monthly_turnover"], cost_bps, gross_sr,
+        ))
+
+# =========================================================================
+# COMPARE METHODS TAB
+# =========================================================================
+with tab_compare:
+    if len(method_results) >= 2:
+        st.subheader("Method Comparison")
+        comp = []
+        cost_bps_cmp = st.number_input("Cost per trade (bps)", value=10.0, step=5.0, key="tc_bps_cmp")
+        for m_name, port in method_results.items():
+            p = compute_performance_metrics(port["monthly_returns"])
+            p["Strategy"] = m_name
+            p["Mean Turnover"] = port["turnover"].dropna().mean()
+            ann_vol_m = port["monthly_returns"].std() * np.sqrt(12)
+            tc_m = transaction_cost_drag(port["turnover"], cost_bps_cmp, ann_vol_m)
+            p["TC Drag"] = tc_m["TC_annual"]
+            p["Net SR"] = p["SR"] - tc_m["Cost_SR"]
+            comp.append(p)
+        comparison_table(comp)
+    else:
+        st.info("Select at least 2 methods in the sidebar to compare.")
 
 render_next_steps("portfolio")

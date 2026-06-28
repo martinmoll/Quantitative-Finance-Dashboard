@@ -8,17 +8,25 @@ from core.factor_models import (
     run_regression, rolling_beta, bloomberg_shrink_beta,
     compute_vif, wald_test, hedge_ratio,
 )
-from components.metrics import regression_table, vif_table
+from components.metrics import regression_table, vif_table, metric_card, metric_card_row
 from components.charts import STYLE, rolling_metric_chart
 from components.theory import theory_section
 from components.interpretations import (
     render_interpretation, interpret_r_squared, interpret_vif,
 )
 from components.workflow import render_workflow_status, render_next_steps
+from components.theme import inject_theme, COLORS, FONT_SANS
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Factor Analysis", layout="wide")
-st.title("Factor Analysis (CAPM & FF5)")
+inject_theme()
+
+C = COLORS
+st.markdown(
+    f'<h1 style="font-family:{FONT_SANS};font-size:28px;font-weight:700;'
+    f'color:{C["text"]};margin:0;">Factor Analysis (CAPM & FF5)</h1>',
+    unsafe_allow_html=True,
+)
 render_workflow_status("explore")
 
 df = st.session_state.get("df")
@@ -93,23 +101,22 @@ if "Mkt-RF" in factors.columns and len(excess_returns) > window:
     ))
     fig.add_trace(go.Scatter(
         x=beta_df.index, y=beta_df["lower"].values, mode="lines",
-        line=dict(width=0), fill="tonexty", fillcolor="rgba(59,130,246,0.15)",
+        line=dict(width=0), fill="tonexty", fillcolor="rgba(91,155,255,0.15)",
         showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=beta_df.index, y=beta_df["beta"].values, name="OLS Beta",
-        line=dict(color=STYLE["accent"], width=2),
+        line=dict(color=C["primary"], width=2),
     ))
     fig.add_trace(go.Scatter(
         x=beta_df.index, y=shrunk.values, name="Bloomberg Shrunk",
-        line=dict(color=STYLE["warning"], width=2, dash="dash"),
+        line=dict(color=C["warning"], width=2, dash="dash"),
     ))
-    fig.add_hline(y=1.0, line_dash="dot", line_color=STYLE["muted"])
+    fig.add_hline(y=1.0, line_dash="dot", line_color=C["text_muted"])
     fig.update_layout(
         title=f"Rolling {window}-Month Beta",
-        yaxis_title="Beta", template=STYLE["template"],
+        yaxis_title="Beta", template="alpha",
         height=400, margin=dict(t=40, b=40),
-        paper_bgcolor=STYLE["bg"], plot_bgcolor=STYLE["bg"],
     )
     st.plotly_chart(fig, use_container_width=True)
 

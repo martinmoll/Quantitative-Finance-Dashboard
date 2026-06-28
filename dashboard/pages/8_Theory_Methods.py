@@ -3,9 +3,17 @@
 
 import streamlit as st
 from components.theory_content import THEORY_CONTENT
+from components.theme import inject_theme, COLORS, FONT_SANS
 
 st.set_page_config(page_title="Theory & Methods", layout="wide")
-st.title("Theory & Methods")
+inject_theme()
+
+C = COLORS
+st.markdown(
+    f'<h1 style="font-family:{FONT_SANS};font-size:28px;font-weight:700;'
+    f'color:{C["text"]};margin:0;">Theory & Methods</h1>',
+    unsafe_allow_html=True,
+)
 
 st.markdown(
     "This page provides a comprehensive overview of the quantitative alpha pipeline, "

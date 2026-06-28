@@ -1,34 +1,20 @@
-"""Reusable Plotly chart builders with Bloomberg dark aesthetic."""
+"""Reusable Plotly chart builders with modernized dark aesthetic."""
 
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from components.theme import COLORS, PIN_COLORS, base_layout as _base_layout
 
 STYLE = {
-    "bg": "#0A1628",
-    "positive": "#00D26A",
-    "negative": "#FF4444",
-    "warning": "#FFB800",
-    "text": "#FFFFFF",
-    "muted": "#8899AA",
-    "accent": "#3b82f6",
-    "template": "plotly_dark",
+    "bg": COLORS["canvas"],
+    "positive": COLORS["positive"],
+    "negative": COLORS["negative"],
+    "warning": COLORS["warning"],
+    "text": COLORS["text"],
+    "muted": COLORS["text_secondary"],
+    "accent": COLORS["primary"],
+    "template": "alpha",
 }
-
-PIN_COLORS = ["#f59e0b", "#8b5cf6", "#ec4899", "#14b8a6"]
-
-
-def _base_layout(**overrides) -> dict:
-    layout = dict(
-        template=STYLE["template"],
-        height=400,
-        margin=dict(t=40, b=40, l=50, r=20),
-        paper_bgcolor=STYLE["bg"],
-        plot_bgcolor=STYLE["bg"],
-        font=dict(family="monospace", color=STYLE["text"]),
-    )
-    layout.update(overrides)
-    return layout
 
 
 def cumulative_wealth_chart(
@@ -46,8 +32,8 @@ def cumulative_wealth_chart(
             values.append(bal)
         wealth = pd.Series(values, index=rets.index)
 
-        color = STYLE["accent"] if i == 0 else (
-            "gray" if name == "SPY" else PIN_COLORS[(i - 1) % len(PIN_COLORS)]
+        color = STYLE["positive"] if i == 0 else (
+            COLORS["text_muted"] if name == "SPY" else PIN_COLORS[(i - 1) % len(PIN_COLORS)]
         )
         dash = "dash" if name == "SPY" else None
         fig.add_trace(go.Scatter(
@@ -73,7 +59,7 @@ def drawdown_chart(returns_dict: dict[str, pd.Series], start_val: float = 10000)
 
         color = STYLE["negative"] if i == 0 else PIN_COLORS[(i - 1) % len(PIN_COLORS)]
         fill = "tozeroy" if i == 0 else None
-        fillcolor = "rgba(239,68,68,0.3)" if i == 0 else None
+        fillcolor = "rgba(244,106,106,0.22)" if i == 0 else None
 
         fig.add_trace(go.Scatter(
             x=dd.index, y=dd.values, name=name, fill=fill,
@@ -98,7 +84,7 @@ def monthly_heatmap(returns: pd.Series) -> go.Figure:
 
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values * 100, x=pivot.columns, y=pivot.index,
-        colorscale=[[0, STYLE["negative"]], [0.5, "#1f2937"], [1, STYLE["positive"]]],
+        colorscale=[[0, STYLE["negative"]], [0.5, COLORS["surface"]], [1, STYLE["positive"]]],
         zmid=0,
         text=np.round(pivot.values * 100, 1),
         texttemplate="%{text:.1f}%",
@@ -129,7 +115,7 @@ def rolling_metric_chart(
         fig.add_trace(go.Scatter(
             x=lower.index, y=lower.values, mode="lines", name="-1σ",
             line=dict(width=0), fill="tonexty",
-            fillcolor="rgba(59,130,246,0.15)", showlegend=False,
+            fillcolor="rgba(91,155,255,0.15)", showlegend=False,
         ))
 
     fig.add_trace(go.Scatter(

@@ -7,10 +7,19 @@ import numpy as np
 from components.charts import correlation_heatmap, bar_chart, STYLE
 from components.theory import theory_section
 from components.workflow import render_workflow_status, render_next_steps
+from components.theme import inject_theme, COLORS, FONT_SANS
+from components.metrics import metric_card_row
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Data Explorer", layout="wide")
-st.title("Data Explorer")
+inject_theme()
+
+C = COLORS
+st.markdown(
+    f'<h1 style="font-family:{FONT_SANS};font-size:28px;font-weight:700;'
+    f'color:{C["text"]};margin:0;">Data Explorer</h1>',
+    unsafe_allow_html=True,
+)
 render_workflow_status("explore")
 
 df = st.session_state.get("df")
@@ -22,12 +31,13 @@ theory_section("Cross-Sectional Standardization", "cross_sectional_standardizati
 
 # --- Summary Statistics ---
 st.header("Dataset Summary")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Stocks", f"{df['permno'].nunique():,}")
-col2.metric("Months", f"{df['ym'].nunique()}")
-col3.metric("Date Range", f"{df['ym'].min()} to {df['ym'].max()}")
 xs_cols = [c for c in df.columns if c.endswith("_xs") and c != "y_xs"]
-col4.metric("Features", f"{len(xs_cols)}")
+metric_card_row([
+    {"label": "Stocks", "value": f"{df['permno'].nunique():,}", "accent": C["primary"], "variant": "bar"},
+    {"label": "Months", "value": f"{df['ym'].nunique()}", "accent": C["primary"], "variant": "bar"},
+    {"label": "Date Range", "value": f"{df['ym'].min()} to {df['ym'].max()}", "accent": C["primary"], "variant": "bar"},
+    {"label": "Features", "value": f"{len(xs_cols)}", "accent": C["primary"], "variant": "bar"},
+])
 
 # --- Universe Size Over Time ---
 st.header("Universe Size Over Time")
@@ -38,9 +48,8 @@ fig.add_trace(go.Scatter(
     line=dict(color=STYLE["accent"], width=2),
 ))
 fig.update_layout(
-    template=STYLE["template"], height=300, margin=dict(t=20, b=30),
+    template="alpha", height=300, margin=dict(t=20, b=30),
     yaxis_title="Number of Stocks",
-    paper_bgcolor=STYLE["bg"], plot_bgcolor=STYLE["bg"],
 )
 st.plotly_chart(fig, use_container_width=True)
 
@@ -62,8 +71,7 @@ with dist_col2:
     ))
     fig.update_layout(
         title=f"{selected_feature} — {selected_month} (n={len(month_data)})",
-        template=STYLE["template"], height=350, margin=dict(t=40, b=30),
-        paper_bgcolor=STYLE["bg"], plot_bgcolor=STYLE["bg"],
+        template="alpha", height=350, margin=dict(t=40, b=30),
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -91,9 +99,8 @@ if len(missing_nonzero) > 0:
     ))
     fig.update_layout(
         title="% Missing by Feature (top 30)",
-        yaxis_title="% Missing", template=STYLE["template"],
+        yaxis_title="% Missing", template="alpha",
         height=350, margin=dict(t=40, b=80),
-        paper_bgcolor=STYLE["bg"], plot_bgcolor=STYLE["bg"],
     )
     st.plotly_chart(fig, use_container_width=True)
 else:

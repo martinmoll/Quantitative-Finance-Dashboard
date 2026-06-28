@@ -11,20 +11,27 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from components.workflow import render_workflow_status, render_next_steps
+from components.theme import inject_theme, COLORS, FONT_SANS
+from components.metrics import metric_card_row
 
-st.header("Data Pipeline")
+inject_theme()
+
+C = COLORS
+st.markdown(
+    f'<h1 style="font-family:{FONT_SANS};font-size:28px;font-weight:700;'
+    f'color:{C["text"]};margin:0;">Data Pipeline</h1>',
+    unsafe_allow_html=True,
+)
 render_workflow_status("data")
 st.markdown("Fetch the latest market data and update the dataset.")
 
 df = st.session_state.get("df")
 if df is not None:
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Stocks", f"{df['permno'].nunique():,}")
-    with col2:
-        st.metric("Months", f"{df['ym'].nunique()}")
-    with col3:
-        st.metric("Date Range", f"{df['ym'].min()} to {df['ym'].max()}")
+    metric_card_row([
+        {"label": "Stocks", "value": f"{df['permno'].nunique():,}", "accent": C["primary"], "variant": "bar"},
+        {"label": "Months", "value": f"{df['ym'].nunique()}", "accent": C["primary"], "variant": "bar"},
+        {"label": "Date Range", "value": f"{df['ym'].min()} to {df['ym'].max()}", "accent": C["primary"], "variant": "bar"},
+    ])
     st.markdown("---")
 
 universe = st.selectbox(

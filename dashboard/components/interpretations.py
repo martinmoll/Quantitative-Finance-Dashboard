@@ -8,6 +8,7 @@ Pages call ``render_interpretation()`` to display the banner.
 from __future__ import annotations
 import streamlit as st
 import numpy as np
+from components.metrics import banner
 
 
 def render_interpretation(interp: dict | None):
@@ -17,7 +18,10 @@ def render_interpretation(interp: dict | None):
     text = interp.get("text", "")
     if not text:
         return
-    getattr(st, level, st.info)(text)
+    sentences = text.split(". ", 1)
+    headline = sentences[0].rstrip(".")
+    detail = sentences[1] if len(sentences) > 1 else None
+    banner(level, headline, detail)
 
 
 # ---------------------------------------------------------------------------
