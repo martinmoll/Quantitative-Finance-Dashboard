@@ -71,6 +71,17 @@ def compute_market_monthly(df: pd.DataFrame) -> pd.DataFrame:
     return market
 
 
+def permno_ticker_map(df: pd.DataFrame) -> dict:
+    """Map each permno to its ticker symbol for display.
+
+    Returns an empty dict if the dataset has no ticker column (e.g. the
+    legacy course dataset), so callers fall back to showing permno.
+    """
+    if "ticker" not in df.columns:
+        return {}
+    return df.groupby("permno")["ticker"].last().to_dict()
+
+
 def load_ff5_factors(path: str | Path | None = None) -> pd.DataFrame:
     """Load Fama-French 5-factor monthly data from CSV."""
     if path is None:

@@ -27,7 +27,19 @@ if render_empty_state("monitor"):
     st.stop()
 
 result = st.session_state.get("backtest_result")
-params = st.session_state.get("backtest_params")
+pinned = st.session_state.get("pinned_configs", [])
+
+# --- Config selector ---
+config_options = ["Current Run"]
+config_map = {"Current Run": {"result": result}}
+for p in pinned:
+    config_options.append(p["label"])
+    config_map[p["label"]] = p
+
+active_label = "Current Run"
+if len(config_options) > 1:
+    active_label = st.sidebar.selectbox("View config", config_options)
+result = config_map[active_label]["result"]
 
 rets = result["monthly_returns"].dropna()
 if len(rets) < 6:

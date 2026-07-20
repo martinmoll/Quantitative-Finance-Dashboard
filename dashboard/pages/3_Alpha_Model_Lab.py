@@ -220,7 +220,10 @@ if pin_clicked:
     pinned = st.session_state.get("pinned_configs", [])
     if result is not None and len(pinned) < 4:
         label = f"{params['model_name']} {params['construction_method']} K={params['K']}"
-        pinned.append({"label": label, "result": result, "params": params})
+        pinned.append({
+            "label": label, "result": result, "params": params,
+            "predictions": st.session_state.get("backtest_predictions"),
+        })
         st.session_state.pinned_configs = pinned
         st.success(f"Pinned: {label}")
 

@@ -6,6 +6,7 @@ from core.diagnostics import (
     fundamental_law,
     feature_ic,
     ks_test,
+    feature_drift,
     alpha_decay,
     signal_staleness,
     bootstrap_sharpe_ci,
@@ -64,6 +65,39 @@ def test_ks_test():
     assert "flag" in result.columns
     f1_row = result[result["feature"] == "f1"]
     assert f1_row["D"].values[0] > 0.3
+
+
+def test_ks_test_empty_when_no_valid_data():
+    train = pd.DataFrame({"a": [np.nan, np.nan]})
+    current = pd.DataFrame({"a": [np.nan, np.nan]})
+    result = ks_test(train, current)
+    assert list(result.columns) == ["feature", "D", "pval", "flag"]
+    assert len(result) == 0
+
+
+def test_feature_drift_survives_all_nan_columns():
+    """A feature that is entirely NaN in the training window must not wipe out
+    drift detection for the features that do have data (the Monitoring bug)."""
+    np.random.seed(0)
+    train = pd.DataFrame({
+        "good": np.random.randn(300),
+        "all_nan": np.full(300, np.nan),
+    })
+    current = pd.DataFrame({
+        "good": np.random.randn(60) + 2,  # shifted → should flag
+        "all_nan": np.full(60, np.nan),
+    })
+    result = feature_drift(train, current, ["good", "all_nan"])
+    assert "good" in result["feature"].values
+    assert "all_nan" not in result["feature"].values
+    assert bool(result[result["feature"] == "good"]["flag"].iloc[0])
+
+
+def test_feature_drift_empty_when_no_train_data():
+    train = pd.DataFrame({"good": []})
+    current = pd.DataFrame({"good": [0.1, 0.2, 0.3]})
+    result = feature_drift(train, current, ["good"])
+    assert result.empty
 
 
 def test_alpha_decay(sample_predictions):

@@ -1,7 +1,9 @@
 import pytest
 import pandas as pd
 import numpy as np
-from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
+from core.data_loader import (
+    load_dataset, compute_market_monthly, load_ff5_factors, permno_ticker_map,
+)
 
 
 def test_compute_market_monthly(sample_panel):
@@ -46,6 +48,20 @@ def test_load_ff5_factors_columns(tmp_path):
 def test_load_ff5_factors_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_ff5_factors(tmp_path / "nonexistent.csv")
+
+
+def test_permno_ticker_map():
+    df = pd.DataFrame({
+        "permno": [1, 1, 2, 2],
+        "ym": ["2020-01", "2020-02", "2020-01", "2020-02"],
+        "ticker": ["AAPL", "AAPL", "MSFT", "MSFT"],
+    })
+    assert permno_ticker_map(df) == {1: "AAPL", 2: "MSFT"}
+
+
+def test_permno_ticker_map_no_ticker_column():
+    df = pd.DataFrame({"permno": [1, 2], "ym": ["2020-01", "2020-01"]})
+    assert permno_ticker_map(df) == {}
 
 
 def test_load_dataset_from_csv(tmp_path):

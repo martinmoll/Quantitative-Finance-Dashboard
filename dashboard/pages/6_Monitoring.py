@@ -4,7 +4,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from core.diagnostics import ks_test, alpha_decay, signal_staleness, compute_ic_stats
+from core.diagnostics import feature_drift, alpha_decay, signal_staleness, compute_ic_stats
 from core.risk import factor_exposure
 from components.charts import traffic_light_dashboard, bar_chart, STYLE
 from components.theory import theory_section
@@ -22,11 +22,36 @@ inject_theme()
 if render_empty_state("monitor"):
     st.stop()
 
-result = st.session_state.get("backtest_result")
-predictions = st.session_state.get("backtest_predictions")
-params = st.session_state.get("backtest_params")
+pinned = st.session_state.get("pinned_configs", [])
+
+# --- Config selector ---
+config_options = ["Current Run"]
+config_map = {"Current Run": {
+    "result": st.session_state.get("backtest_result"),
+    "predictions": st.session_state.get("backtest_predictions"),
+    "params": st.session_state.get("backtest_params"),
+}}
+for p in pinned:
+    config_options.append(p["label"])
+    config_map[p["label"]] = p
+
+active_label = "Current Run"
+if len(config_options) > 1:
+    active_label = st.sidebar.selectbox("View config", config_options)
+active = config_map[active_label]
+
+result = active["result"]
+predictions = active.get("predictions")
+params = active.get("params")
 df = st.session_state.get("df")
 ff5 = st.session_state.get("ff5_factors")
+
+if predictions is None:
+    st.info(
+        "This pinned configuration has no stored predictions, so monitoring "
+        "diagnostics are unavailable. Re-run and re-pin it to enable them."
+    )
+    st.stop()
 
 C = COLORS
 
@@ -50,11 +75,11 @@ ks_results = None
 if len(months) >= 2 and available_features:
     last_month = months[-1]
     train_data = df[df["ym"] < months[0]]
-    X_train = train_data[available_features].dropna()
-    X_current = df[df["ym"] == last_month][available_features].dropna()
-    if len(X_train) > 0 and len(X_current) > 0:
-        ks_results = ks_test(X_train, X_current)
-        n_flagged = ks_results["flag"].sum()
+    current_data = df[df["ym"] == last_month]
+    drift = feature_drift(train_data, current_data, available_features)
+    if not drift.empty:
+        ks_results = drift
+        n_flagged = int(ks_results["flag"].sum())
         n_total = len(ks_results)
         pct_flagged = n_flagged / n_total if n_total > 0 else 0
 
@@ -168,13 +193,12 @@ with tab_drift:
 
         if len(months) > 3 and available_features:
             train_data = df[df["ym"] < months[0]]
-            X_train_ks = train_data[available_features].dropna()
             ks_over_time = {}
             sample_months = months[::max(1, len(months) // 12)]
             for m in sample_months:
-                X_m = df[df["ym"] == m][available_features].dropna()
-                if len(X_m) > 0:
-                    ks_m = ks_test(X_train_ks, X_m)
+                month_data = df[df["ym"] == m]
+                ks_m = feature_drift(train_data, month_data, available_features)
+                if not ks_m.empty:
                     ks_over_time[m] = ks_m.set_index("feature")["D"]
             if ks_over_time:
                 ks_df = pd.DataFrame(ks_over_time).T
@@ -192,6 +216,13 @@ with tab_drift:
                     height=400,
                 )
                 st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info(
+            "Not enough overlapping feature data between the training window "
+            "and the current month to compute distribution drift. This happens "
+            "when the pre-out-of-sample window is empty or its features have no "
+            "history yet."
+        )
 
 # =========================================================================
 # ALPHA DECAY TAB

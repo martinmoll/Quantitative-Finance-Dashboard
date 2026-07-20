@@ -35,7 +35,11 @@ pinned = st.session_state.get("pinned_configs", [])
 
 # --- Config Selector ---
 config_options = ["Current Run"]
-config_map = {"Current Run": {"result": result, "params": st.session_state.get("backtest_params", {})}}
+config_map = {"Current Run": {
+    "result": result,
+    "params": st.session_state.get("backtest_params", {}),
+    "predictions": st.session_state.get("backtest_predictions"),
+}}
 for p in pinned:
     config_options.append(p["label"])
     config_map[p["label"]] = p
@@ -276,7 +280,7 @@ with tab_signal:
     # R2 OOS
     st.markdown("---")
     st.subheader("Out-of-Sample R² (Campbell & Thompson 2008)")
-    predictions = st.session_state.get("backtest_predictions")
+    predictions = active.get("predictions")
     if predictions:
         r2_oos = compute_r2_oos(predictions)
         r2_col1, r2_col2 = st.columns([1, 3])
@@ -285,6 +289,8 @@ with tab_signal:
                         accent=C["positive"] if r2_oos > 0 else C["warning"], variant="bar")
         with r2_col2:
             render_interpretation(interpret_r2_oos(r2_oos))
+    else:
+        st.caption("R²_OOS is unavailable for this configuration (no stored predictions).")
 
 # =========================================================================
 # ATTRIBUTION TAB
@@ -376,7 +382,10 @@ if pin_clicked:
     cur_pinned = st.session_state.get("pinned_configs", [])
     if cur_result is not None and len(cur_pinned) < 4:
         label = f"{cur_params['model_name']} {cur_params['construction_method']} K={cur_params['K']}"
-        cur_pinned.append({"label": label, "result": cur_result, "params": cur_params})
+        cur_pinned.append({
+            "label": label, "result": cur_result, "params": cur_params,
+            "predictions": st.session_state.get("backtest_predictions"),
+        })
         st.session_state.pinned_configs = cur_pinned
         st.rerun()
 

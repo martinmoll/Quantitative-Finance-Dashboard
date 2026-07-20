@@ -111,7 +111,30 @@ def ks_test(
             "pval": float(pval),
             "flag": D > threshold,
         })
+    if not results:
+        return pd.DataFrame(columns=["feature", "D", "pval", "flag"])
     return pd.DataFrame(results).sort_values("D", ascending=False).reset_index(drop=True)
+
+
+def feature_drift(
+    train_df: pd.DataFrame,
+    current_df: pd.DataFrame,
+    features: list[str],
+    threshold: float = 0.10,
+) -> pd.DataFrame:
+    """KS drift per feature between a training window and the current month.
+
+    NaNs are handled per feature inside ks_test, so a feature that is entirely
+    NaN in one window is simply skipped. This avoids the trap of a row-wise
+    dropna across all features, which collapses the whole panel to zero rows
+    whenever any single feature is all-NaN (common in early months of a short
+    panel, where long-lookback features have no history yet).
+    """
+    cols = [c for c in features
+            if c in train_df.columns and c in current_df.columns]
+    if not cols:
+        return pd.DataFrame(columns=["feature", "D", "pval", "flag"])
+    return ks_test(train_df[cols], current_df[cols], threshold)
 
 
 def alpha_decay(
