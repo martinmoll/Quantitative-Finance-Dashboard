@@ -84,7 +84,13 @@ def monthly_heatmap(returns: pd.Series) -> go.Figure:
 
     fig = go.Figure(data=go.Heatmap(
         z=pivot.values * 100, x=pivot.columns, y=pivot.index,
-        colorscale=[[0, STYLE["negative"]], [0.5, COLORS["surface"]], [1, STYLE["positive"]]],
+        colorscale=[
+            [0.0, "#C0392B"],           # deep red   — strong loss
+            [0.25, STYLE["negative"]],  # #F46A6A    — loss
+            [0.5, STYLE["warning"]],    # #F5B13D    — flat / near zero
+            [0.75, STYLE["positive"]],  # #34E0A1    — gain
+            [1.0, "#0E8F63"],           # deep green — strong gain
+        ],
         zmid=0,
         text=np.round(pivot.values * 100, 1),
         texttemplate="%{text:.1f}%",
