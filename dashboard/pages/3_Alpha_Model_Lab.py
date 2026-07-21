@@ -160,7 +160,7 @@ if run_clicked:
     pred_key = cache.prediction_key(
         model_name, model_params, retrain_freq,
         feature_cols=available_features, window_type=window_type,
-        auto_tune=auto_tune,
+        auto_tune=auto_tune, data_fingerprint=cache.dataset_fingerprint(df),
     )
     predictions = cache.get_predictions(pred_key)
 

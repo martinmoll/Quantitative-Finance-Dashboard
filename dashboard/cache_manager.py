@@ -4,6 +4,8 @@ import os
 import pickle
 from pathlib import Path
 
+import pandas as pd
+
 CACHE_DIR = Path(__file__).parent / '.cache'
 PRED_DIR = CACHE_DIR / 'predictions'
 PORT_DIR = CACHE_DIR / 'portfolios'
@@ -19,7 +21,24 @@ def _make_key(params: dict) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding", auto_tune=False):
+def dataset_fingerprint(df: pd.DataFrame) -> str:
+    """A stable id for the dataset a backtest runs on.
+
+    Predictions are only valid for the exact panel they were computed on, so
+    the fingerprint must change whenever the universe (permno set) or the data
+    (row count, month range) changes. Without this the cache would silently
+    serve predictions from a previous dataset after a rebuild or universe
+    switch — the permnos would no longer match the loaded panel.
+    """
+    raw = json.dumps({
+        'n_rows': int(len(df)),
+        'permnos': sorted(int(p) for p in df['permno'].unique()),
+        'months': sorted(str(m) for m in df['ym'].unique()),
+    }, sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding", auto_tune=False, data_fingerprint=None):
     return _make_key({
         'model_type': model_type,
         'model_params': model_params,
@@ -27,6 +46,7 @@ def prediction_key(model_type, model_params, retrain_every, feature_cols=None, w
         'feature_cols': sorted(feature_cols) if feature_cols else None,
         'window_type': window_type,
         'auto_tune': auto_tune,
+        'data_fingerprint': data_fingerprint,
     })
 
 
