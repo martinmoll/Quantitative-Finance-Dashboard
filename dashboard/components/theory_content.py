@@ -319,6 +319,154 @@ the intercept of the regression. It represents the monthly return your portfolio
 t-stat > 2 is considered strong. Most published strategies lose significance out of sample.
 """,
 
+    "alpha_significance": r"""
+**Is It Really Alpha? Measuring Statistical Confidence**
+
+A positive alpha number is the beginning of the question, not the answer. The
+estimate $\hat{\alpha}$ is a *random variable* — run the same strategy on a
+different sample of months and you'd get a different number. What matters is how
+much of the estimate is signal and how much is sampling noise. This section covers
+the machinery for deciding how much to trust an alpha, and the traps that make
+alphas look real when they aren't.
+
+---
+
+**1. The standard error is the whole game**
+
+Every significance verdict flows from one ratio:
+
+$$t = \frac{\hat{\alpha}}{\text{SE}(\hat{\alpha})}$$
+
+The point estimate on top is the easy part. The **standard error** on the bottom is
+where the honesty lives — and where the default OLS formula lies for financial
+returns. Ordinary least squares assumes residuals are independent and identically
+distributed. Monthly strategy returns violate both:
+
+- **Heteroskedasticity** — volatility clusters (calm years, then a crisis), so the
+  residual variance is not constant.
+- **Autocorrelation** — this month's residual is correlated with last month's
+  (momentum crashes, slow-moving factor regimes).
+
+Both make the naive OLS standard error *too small*, which inflates $t$ and makes
+noise look like skill. The fix is **HAC (Heteroskedasticity- and Autocorrelation-
+Consistent) standard errors**, a.k.a. **Newey-West**. They widen the error bars to
+account for the correlation structure. A common automatic lag choice is:
+
+$$L = \left\lfloor 4 \left(\tfrac{T}{100}\right)^{2/9} \right\rfloor$$
+
+where $T$ is the number of months. HAC SEs are almost always *larger* than OLS SEs —
+if switching to HAC kills your significance, the significance was never there. This
+dashboard reports HAC-based t-stats and p-values throughout.
+
+---
+
+**2. From the t-stat to a confidence interval**
+
+- **p-value** — the probability of seeing an alpha at least this large *if the true
+  alpha were zero*. $p < 0.05$ is the conventional bar; $p < 0.01$ is stronger. It is
+  **not** the probability that your alpha is real — that's a common misreading.
+- **Bootstrap confidence interval** — rather than trust a formula, resample the
+  observed months (with replacement) thousands of times, re-estimate alpha on each
+  resample, and take the 2.5th and 97.5th percentiles. This makes no assumption that
+  $\hat{\alpha}$ is normally distributed, which matters for short, fat-tailed return
+  series. **The single most useful habit: read the CI, not the point estimate.** If
+  the 95% interval straddles zero, you cannot rule out that your true alpha is zero —
+  regardless of how good the headline number looks. The Backtest Results page shows
+  this interval directly under the FF5 Alpha card.
+
+---
+
+**3. The multiple-testing trap — the biggest threat to "real" alpha**
+
+Significance thresholds assume you ran *one* test. You never do. Every model,
+feature set, K, and construction method you try is another draw. Test 20 genuinely
+worthless strategies at the 5% level and you *expect* one to print $t > 2$ purely by
+luck. Keep the winner, and its t-stat is **selection-biased** upward — it looks
+significant precisely because you chose it for being extreme.
+
+This dashboard makes the trap concrete: the Alpha Model Lab lets you try
+configurations and **pin several to compare**. The moment you compare $N$ strategies,
+$t > 1.96$ is no longer the right bar. Three standard corrections:
+
+| Method | Idea | Trade-off |
+|--------|------|-----------|
+| **Bonferroni** | Require $p < \alpha / N$ (equivalently a higher t-hurdle) to hold family-wise error at $\alpha$ across all $N$ tests. | Simple, but very conservative when tests are correlated. |
+| **False Discovery Rate** (Benjamini-Hochberg) | Control the *expected fraction* of your "discoveries" that are false, rather than the chance of *any* false positive. | Less conservative; the modern default for many parallel tests. |
+| **Deflated Sharpe Ratio** (Bailey & López de Prado) | Shrink the Sharpe (and, by analogy, alpha) for the number of trials, the variance across trials, and non-normal returns. Answers: "is this the best of many, or genuinely good?" | Needs a defensible count of how many configs you actually tried. |
+
+The Bonferroni hurdle rises fast with the number of trials:
+
+| Trials $N$ | Approx. t-hurdle (5% family-wise) |
+|-----------|-----------------------------------|
+| 1 | 1.96 |
+| 5 | 2.58 |
+| 20 | 3.02 |
+| 100 | 3.48 |
+
+This is why **Harvey, Liu & Zhu (2016)**, after cataloguing decades of published
+factor "discoveries," argue the credible hurdle for a *new* anomaly is **$t > 3.0$,
+not 2.0**. When you've tried many configurations, treat $t \approx 2$ as "interesting,
+keep looking," not "found it."
+
+---
+
+**4. In-sample vs. out-of-sample alpha**
+
+Alpha estimated on the same data used to build and tune the model is *optimistically
+biased* — the model has partly memorized the sample. The walk-forward protocol makes
+the reported returns genuinely out-of-sample, which is why the alpha here is more
+trustworthy than a fitted backtest. But note the residual leak: even with clean
+walk-forward returns, *if you picked the configuration by eyeballing its
+out-of-sample alpha*, you have re-introduced selection bias through the back door.
+True out-of-sample means data your choices never touched.
+
+---
+
+**5. Minimum detectable alpha — do you even have the sample size?**
+
+Short backtests physically cannot certify small alphas, no matter the point estimate.
+Setting the significance bar $t = 2$ and solving for the months needed:
+
+$$T \approx \left(\frac{2}{IR_{monthly}}\right)^2, \qquad IR_{monthly} = \frac{\hat{\alpha}_{monthly}}{\sigma_{monthly}}$$
+
+A strategy with a *monthly* information ratio of 0.2 (a respectable ~0.7 annualized
+Sharpe) needs roughly $ (2/0.2)^2 = 100 $ months — over eight years — before a true
+alpha reliably clears $t > 2$. If your backtest is 40 months and the alpha isn't
+huge, an insignificant result may reflect **too little data**, not absence of skill.
+Report the CI and move on; don't over-read either the significance or the lack of it.
+
+---
+
+**6. Statistical vs. economic significance**
+
+A t-stat says the alpha is unlikely to be zero; it says nothing about whether the
+alpha *survives contact with reality*:
+
+- **Net of costs** — subtract turnover and transaction-cost drag. A significant gross
+  alpha with a Cost-Sharpe that eats most of it is not investable.
+- **Regime stability** — check the *rolling* alpha, not just the full-sample number.
+  An alpha driven entirely by one lucky year (or one crisis month) is fragile, even if
+  the pooled t-stat looks fine. A real edge shows up repeatedly across sub-periods.
+
+---
+
+**A confidence checklist**
+
+Before calling something alpha, ask:
+
+1. Is the t-stat computed with **HAC** standard errors? (Yes, here.)
+2. Does the **bootstrap CI exclude zero**?
+3. How many configurations did I try — and does the alpha clear the **multiple-testing
+   hurdle** ($t > 3$ is a safe default), not just $t > 2$?
+4. Is the alpha **out-of-sample**, and did I avoid choosing the config *by* its OOS result?
+5. Do I have **enough months** to detect an alpha this size?
+6. Does it survive **net of costs** and show up **across sub-periods**?
+
+Passing one of these is easy and meaningless. Passing all six is rare — which is
+exactly why genuine alpha is valuable. See the *Jensen's Alpha* section for how to
+interpret the four alpha scenarios once you trust the number.
+""",
+
     "factor_investing_foundations": r"""
 **Why Do Factors Earn Premiums?**
 
@@ -348,6 +496,8 @@ These premiums have persisted across decades and geographies, but they're time-v
 | MDD | Maximum Drawdown — largest peak-to-trough decline |
 | Calmar | Annualized return / |MDD| |
 | HAC SE | Heteroskedasticity and Autocorrelation Consistent standard errors |
+| Multiple Testing | Inflated false-positive risk from trying many strategies and keeping the best; corrected via Bonferroni / FDR |
+| Deflated Sharpe | Sharpe ratio shrunk for the number of trials and non-normality (Bailey & López de Prado) |
 | VIF | Variance Inflation Factor — measures multicollinearity |
 | KS Test | Kolmogorov-Smirnov test for distribution shift |
 | ERC | Equal Risk Contribution — portfolio where each position contributes equally to risk |

@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
-    compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci,
+    compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci, multiple_testing_hurdle,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -162,6 +162,29 @@ with tab_overview:
         banner(interp["level"], headline, detail)
 
     if alpha_res is not None:
+        # Multiple-testing nudge: comparing pinned configs inflates false positives.
+        if pinned:
+            n_trials = len(pinned) + 1  # pinned configs + the current run
+            hurdle = multiple_testing_hurdle(n_trials)
+            t_obs = abs(alpha_res["t_stat"])
+            if t_obs >= hurdle:
+                banner("success",
+                       f'Comparing <span class="mono">{n_trials}</span> configs — alpha t-stat '
+                       f'<span class="mono">{alpha_res["t_stat"]:.2f}</span> still clears the '
+                       f'multiple-testing hurdle (|t| &gt; <span class="mono">{hurdle:.2f}</span>)',
+                       "Bonferroni raises the bar when you pick the best of several strategies. "
+                       "This alpha survives the correction — evidence it is not just the luckiest "
+                       "of the configs you tried.")
+            else:
+                banner("warning",
+                       f'Comparing <span class="mono">{n_trials}</span> configs — alpha t-stat '
+                       f'<span class="mono">{alpha_res["t_stat"]:.2f}</span> is below the '
+                       f'multiple-testing hurdle (|t| &gt; <span class="mono">{hurdle:.2f}</span>)',
+                       "Every config you pin is another test, so the naive |t| &gt; 1.96 bar no "
+                       "longer holds. Bonferroni requires this tighter hurdle to keep the "
+                       "family-wise false-positive rate at 5% — this alpha may be the luckiest "
+                       "draw rather than genuine skill. See the theory below.")
+        theory_section("Is It Really Alpha? Measuring Statistical Confidence", "alpha_significance")
         theory_section("Jensen's Alpha — Do You Have Skill?", "jensens_alpha")
 
     # Charts: wealth + drawdown left, heatmap + feature importance right

@@ -31,6 +31,8 @@ sections = [
     ("Walk-Forward Validation", "walk_forward"),
     ("Regularization: L1, L2, and Trees", "regularization"),
     ("Information Coefficient & Fundamental Law", "ic_and_fundamental_law"),
+    ("Jensen's Alpha — Do You Have Skill?", "jensens_alpha"),
+    ("Is It Really Alpha? Statistical Confidence", "alpha_significance"),
     ("Feature Importance", "feature_importance"),
     ("Portfolio Construction Methods", "portfolio_construction"),
     ("Turnover and Transaction Costs", "turnover_and_costs"),

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 from core.diagnostics import (
     compute_performance_metrics,
     compute_ic_stats,
@@ -11,6 +12,7 @@ from core.diagnostics import (
     signal_staleness,
     bootstrap_sharpe_ci,
     bootstrap_alpha_ci,
+    multiple_testing_hurdle,
 )
 
 
@@ -143,3 +145,22 @@ def test_bootstrap_alpha_ci_insufficient_data(sample_ff5):
     short = pd.Series([0.01] * 5, index=sample_ff5.index[:5])
     result = bootstrap_alpha_ci(short, sample_ff5, n_boot=100)
     assert np.isnan(result["point"])
+
+
+def test_multiple_testing_hurdle_single_trial():
+    # One test reduces to the ordinary two-sided 5% critical value.
+    assert multiple_testing_hurdle(1) == pytest.approx(1.959964, abs=1e-4)
+
+
+def test_multiple_testing_hurdle_rises_with_trials():
+    # More trials → stricter (higher) t-hurdle to hold family-wise error at 5%.
+    h1 = multiple_testing_hurdle(1)
+    h5 = multiple_testing_hurdle(5)
+    h20 = multiple_testing_hurdle(20)
+    assert h1 < h5 < h20
+    assert h20 == pytest.approx(3.023, abs=1e-3)
+
+
+def test_multiple_testing_hurdle_floors_at_one_trial():
+    # Zero/negative trial counts are treated as a single test, not a crash.
+    assert multiple_testing_hurdle(0) == multiple_testing_hurdle(1)

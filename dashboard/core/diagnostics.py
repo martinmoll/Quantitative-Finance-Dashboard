@@ -3,7 +3,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr, ks_2samp
+from scipy.stats import spearmanr, ks_2samp, norm
 
 
 def compute_performance_metrics(returns: pd.Series) -> dict:
@@ -280,6 +280,20 @@ def bootstrap_alpha_ci(
         point = np.nan
 
     return {"point": point, "lo": lo, "hi": hi, "ci": ci}
+
+
+def multiple_testing_hurdle(n_trials: int, alpha: float = 0.05) -> float:
+    """Bonferroni-adjusted two-sided critical t-value for ``n_trials`` tests.
+
+    Trying many strategy configurations and keeping the best inflates the
+    false-positive rate: the naive |t| > 1.96 bar no longer controls the
+    family-wise error at ``alpha``. Bonferroni tightens the per-test level to
+    ``alpha / n_trials``; the returned value is the corresponding critical t
+    (normal approximation, valid for the sample sizes used here).
+    """
+    n = max(int(n_trials), 1)
+    per_test = alpha / n
+    return float(norm.ppf(1 - per_test / 2))
 
 
 def signal_staleness(
