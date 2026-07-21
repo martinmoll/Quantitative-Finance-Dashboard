@@ -6,7 +6,7 @@ import numpy as np
 
 from pipeline.config import (
     PARQUET_PATH, CSV_PATH, RAW_FEATURE_COLS, RED_FEATURES,
-    TARGET_COLS, FACTOR_COLS, DATA_DIR, XS_FEATURE_COLS,
+    TARGET_COLS, FACTOR_COLS, DATA_DIR, XS_FEATURE_COLS, dataset_paths,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,11 +133,13 @@ def assemble_month(
     return merged
 
 
-def append_to_dataset(new_data: pd.DataFrame) -> pd.DataFrame:
-    if PARQUET_PATH.exists():
-        existing = pd.read_parquet(PARQUET_PATH)
-    elif CSV_PATH.exists():
-        existing = pd.read_csv(CSV_PATH)
+def append_to_dataset(new_data: pd.DataFrame, region: str = "US") -> pd.DataFrame:
+    parquet_path, csv_path = dataset_paths(region)
+
+    if parquet_path.exists():
+        existing = pd.read_parquet(parquet_path)
+    elif csv_path.exists():
+        existing = pd.read_csv(csv_path)
     else:
         existing = pd.DataFrame()
 
@@ -154,8 +156,8 @@ def append_to_dataset(new_data: pd.DataFrame) -> pd.DataFrame:
     _backfill_forward_returns(combined)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(PARQUET_PATH, index=False)
-    combined.to_csv(CSV_PATH, index=False)
+    combined.to_parquet(parquet_path, index=False)
+    combined.to_csv(csv_path, index=False)
 
     return combined
 

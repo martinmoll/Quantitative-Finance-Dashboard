@@ -14,6 +14,33 @@ MACRO_CACHE = CACHE_DIR / "macro"
 PARQUET_PATH = DATA_DIR / "alpha_dataset_v2.parquet"
 CSV_PATH = DATA_DIR / "alpha_dataset_v2.csv"
 
+# Per-region settings. US uses Ken French FF5 + SPY; other regions build a
+# single-factor CAPM frame against a local market proxy (no regional FF5 exists).
+REGION_CONFIG = {
+    "US": {
+        "market_ticker": "SPY",
+        "parquet": PARQUET_PATH,
+        "csv": CSV_PATH,
+        "factor_source": "kenfrench",
+    },
+    "NO": {
+        "market_ticker": "^OSEAX",       # Oslo Børs All-Share
+        "parquet": DATA_DIR / "alpha_dataset_no.parquet",
+        "csv": DATA_DIR / "alpha_dataset_no.csv",
+        "factor_source": "capm",
+        "rf_fred_series": "IR3TIB01NOM156N",  # Norway 3-month interbank rate
+    },
+}
+
+
+def region_config(region: str = "US") -> dict:
+    return REGION_CONFIG.get(region, REGION_CONFIG["US"])
+
+
+def dataset_paths(region: str = "US"):
+    cfg = region_config(region)
+    return cfg["parquet"], cfg["csv"]
+
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 
 PRICE_BATCH_SIZE = 50

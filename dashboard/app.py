@@ -3,7 +3,10 @@
 
 import streamlit as st
 from pathlib import Path
-from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
+from core.data_loader import (
+    load_dataset, compute_market_monthly, load_ff5_factors,
+    available_datasets, region_for_label,
+)
 from components.workflow import render_workflow_status
 from components.theme import inject_theme, COLORS, FONT_MONO, FONT_SANS
 
@@ -15,50 +18,67 @@ st.set_page_config(
 )
 inject_theme()
 
-DATA_DIR = Path(__file__).parent.parent / "Data"
-_dataset_exists = (DATA_DIR / "alpha_dataset_v2.parquet").exists() or \
-                  (DATA_DIR / "alpha_dataset_v2.csv").exists()
-
 
 @st.cache_data
-def _load_all_data():
-    df = load_dataset(auto_generate=True)
+def _load_all_data(dataset_path: str, load_ff5: bool):
+    if dataset_path:
+        df = load_dataset(path=dataset_path)
+    else:
+        df = load_dataset(auto_generate=True)  # first-run US build
 
     from features import precompute_features
     df = precompute_features(df)
 
     market = compute_market_monthly(df)
 
-    ff5_path = Path(__file__).parent.parent / "Data" / "ff5_factors.csv"
     ff5 = None
-    if ff5_path.exists():
-        ff5 = load_ff5_factors(ff5_path)
+    if load_ff5:
+        ff5_path = Path(__file__).parent.parent / "Data" / "ff5_factors.csv"
+        if ff5_path.exists():
+            ff5 = load_ff5_factors(ff5_path)
 
     return df, market, ff5
 
 
-if not _dataset_exists:
+# --- Region / dataset selection ---
+_avail = available_datasets()
+if not _avail:
     st.info(
         "No dataset found. Fetching live market data and building the dataset — "
         "this may take a few minutes on first run..."
     )
 
-df, market_monthly, ff5_factors = _load_all_data()
+_labels = list(_avail.keys())
+if len(_labels) >= 2:
+    if st.session_state.get("active_region") not in _labels:
+        st.session_state["active_region"] = _labels[0]
+    region_label = st.sidebar.selectbox("Dataset", _labels, key="active_region")
+    selected_path = str(_avail[region_label])
+elif _labels:
+    region_label = _labels[0]
+    selected_path = str(_avail[region_label])
+else:
+    region_label = "US (S&P 500 / Nasdaq)"  # nothing built yet → auto-generate US
+    selected_path = ""
 
-if "df" not in st.session_state:
-    st.session_state.df = df
-if "market_monthly" not in st.session_state:
-    st.session_state.market_monthly = market_monthly
-if "ff5_factors" not in st.session_state:
-    st.session_state.ff5_factors = ff5_factors
-if "backtest_result" not in st.session_state:
-    st.session_state.backtest_result = None
-if "backtest_params" not in st.session_state:
-    st.session_state.backtest_params = None
-if "pinned_configs" not in st.session_state:
+region = region_for_label(region_label)
+df, market_monthly, ff5_factors = _load_all_data(selected_path, region == "US")
+
+# Reset any prior backtest/pins when the active dataset changes (different universe).
+if st.session_state.get("_loaded_region_label") != region_label:
+    st.session_state._loaded_region_label = region_label
+    for k in ["backtest_result", "backtest_predictions", "backtest_params",
+              "backtest_feature_importance", "portfolio_weights"]:
+        st.session_state[k] = None
     st.session_state.pinned_configs = []
-if "portfolio_weights" not in st.session_state:
-    st.session_state.portfolio_weights = None
+
+st.session_state.df = df
+st.session_state.market_monthly = market_monthly
+st.session_state.ff5_factors = ff5_factors
+st.session_state.setdefault("backtest_result", None)
+st.session_state.setdefault("backtest_params", None)
+st.session_state.setdefault("pinned_configs", [])
+st.session_state.setdefault("portfolio_weights", None)
 
 C = COLORS
 
@@ -118,7 +138,7 @@ with col_left:
     st.markdown(
         f'<div style="background:linear-gradient(135deg,#15243c,#101a2c);'
         f'border:1px solid rgba(91,155,255,0.22);border-radius:14px;'
-        f'padding:28px 24px;">'
+        f'padding:28px 24px;margin:0 0 18px;">'
         f'<p style="font-family:{FONT_SANS};font-size:11px;font-weight:600;'
         f'text-transform:uppercase;letter-spacing:.06em;color:{C["primary"]};'
         f'margin:0 0 10px;">Start here</p>'

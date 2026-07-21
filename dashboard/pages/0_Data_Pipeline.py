@@ -36,9 +36,11 @@ if df is not None:
 
 universe = st.selectbox(
     "Stock Universe",
-    ["S&P 500", "Nasdaq-100", "S&P 500 + Nasdaq-100"],
-    help="Which index constituents to fetch. Combined option deduplicates overlapping stocks.",
+    ["S&P 500", "Nasdaq-100", "S&P 500 + Nasdaq-100", "Oslo Børs"],
+    help="Which constituents to fetch. Oslo Børs builds a separate Norway dataset "
+         "(CAPM vs OSEBX, no Fama-French factors).",
 )
+region = "NO" if universe == "Oslo Børs" else "US"
 
 fred_key = os.environ.get("FRED_API_KEY", "")
 if not fred_key:
@@ -56,6 +58,7 @@ universe_info = {
     "S&P 500": ("~500 stocks", "10-20 minutes"),
     "Nasdaq-100": ("~100 stocks", "3-5 minutes"),
     "S&P 500 + Nasdaq-100": ("~530 stocks (deduplicated)", "10-25 minutes"),
+    "Oslo Børs": ("~40 stocks", "2-4 minutes"),
 }
 count, est_time = universe_info[universe]
 
@@ -99,6 +102,7 @@ if st.button("Refresh Data", type="primary", use_container_width=True):
         result = run_pipeline(
             fred_api_key=fred_key or None,
             universe=universe,
+            region=region,
             progress_callback=progress_callback,
         )
 
@@ -120,17 +124,35 @@ if st.button("Refresh Data", type="primary", use_container_width=True):
                     f"{'...' if len(result.tickers_failed) > 10 else ''}"
                 )
 
-            from core.data_loader import load_dataset, compute_market_monthly, load_ff5_factors
+            from core.data_loader import (
+                load_dataset, compute_market_monthly, load_ff5_factors,
+                label_for_region,
+            )
             from features import precompute_features
+            from pipeline.config import dataset_paths
 
-            new_df = load_dataset()
+            pq_path, csv_path = dataset_paths(region)
+            new_path = pq_path if pq_path.exists() else csv_path
+            new_df = load_dataset(path=new_path)
             new_df = precompute_features(new_df)
             st.session_state.df = new_df
             st.session_state.market_monthly = compute_market_monthly(new_df)
 
-            ff5_path = Path(__file__).parent.parent.parent / "Data" / "ff5_factors.csv"
-            if ff5_path.exists():
-                st.session_state.ff5_factors = load_ff5_factors(ff5_path)
+            if region == "US":
+                ff5_path = Path(__file__).parent.parent.parent / "Data" / "ff5_factors.csv"
+                st.session_state.ff5_factors = (
+                    load_ff5_factors(ff5_path) if ff5_path.exists() else None
+                )
+            else:
+                # No regional Fama-French factors — CAPM only (vs the local market).
+                st.session_state.ff5_factors = None
+
+            # Switching universe invalidates any prior backtest/pins.
+            for k in ["backtest_result", "backtest_predictions", "backtest_params",
+                      "backtest_feature_importance"]:
+                st.session_state[k] = None
+            st.session_state.pinned_configs = []
+            st.session_state["active_region"] = label_for_region(region)
 
             st.cache_data.clear()
             st.info("Session data reloaded. Navigate to other pages to use updated data.")

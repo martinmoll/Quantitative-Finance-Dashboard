@@ -9,6 +9,37 @@ from pathlib import Path
 DATA_DIR = Path(__file__).parent.parent.parent / "Data"
 FF5_PATH = DATA_DIR / "ff5_factors.csv"
 
+# Regional datasets the dashboard can load. US uses Ken French FF5; other regions
+# have no FF5 (CAPM only), so ff5 is not loaded for them — see app.py.
+DATASET_FILES = {
+    "US (S&P 500 / Nasdaq)": ("alpha_dataset_v2", "US"),
+    "Norway (Oslo Børs)": ("alpha_dataset_no", "NO"),
+}
+
+
+def available_datasets() -> dict:
+    """Map each dataset label to its existing file path (parquet preferred)."""
+    out = {}
+    for label, (base, _region) in DATASET_FILES.items():
+        parquet = DATA_DIR / f"{base}.parquet"
+        csv = DATA_DIR / f"{base}.csv"
+        if parquet.exists():
+            out[label] = parquet
+        elif csv.exists():
+            out[label] = csv
+    return out
+
+
+def region_for_label(label: str) -> str:
+    return DATASET_FILES.get(label, (None, "US"))[1]
+
+
+def label_for_region(region: str) -> str:
+    for label, (_base, r) in DATASET_FILES.items():
+        if r == region:
+            return label
+    return "US (S&P 500 / Nasdaq)"
+
 
 def generate_dataset(progress_callback=None) -> pd.DataFrame:
     """Run the pipeline to generate the dataset from scratch."""

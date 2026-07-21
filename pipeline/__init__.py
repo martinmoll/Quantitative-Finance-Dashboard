@@ -24,12 +24,15 @@ class PipelineResult:
 def run_pipeline(
     fred_api_key: str | None = None,
     universe: str = "S&P 500",
+    region: str = "US",
     progress_callback=None,
 ) -> PipelineResult:
+    from pipeline.config import region_config
     from pipeline.universe import get_tickers
     from pipeline.fetchers.prices import fetch_prices
     from pipeline.fetchers.fundamentals import fetch_fundamentals
     from pipeline.fetchers.factors import fetch_factors
+    from pipeline.fetchers.market import fetch_market_daily, fetch_capm_factors
     from pipeline.fetchers.macro import fetch_macro
     from pipeline.features.price_features import compute_price_features
     from pipeline.features.fundamental_features import compute_fundamental_features
@@ -42,6 +45,8 @@ def run_pipeline(
     def _report(stage, detail=""):
         if progress_callback:
             progress_callback(stage, detail)
+
+    cfg = region_config(region)
 
     try:
         _report("universe", f"Fetching {universe} tickers...")
@@ -56,16 +61,9 @@ def run_pipeline(
             ),
         )
 
-        _report("prices", "Extracting SPY market returns...")
-        if "SPY" in prices.columns.get_level_values(0):
-            market_daily = prices["SPY"]["Close"]
-        else:
-            import yfinance as yf
-            spy = yf.download("SPY", period="3y", progress=False)
-            close = spy["Close"]
-            market_daily = close.squeeze() if hasattr(close, "squeeze") else close
-            if hasattr(market_daily, "index") and market_daily.index.tz is not None:
-                market_daily = market_daily.tz_localize(None)
+        market_ticker = cfg["market_ticker"]
+        _report("prices", f"Downloading {market_ticker} market series...")
+        market_daily = fetch_market_daily(market_ticker)
 
         _report("fundamentals", "Downloading quarterly financials...")
         fund_data = fetch_fundamentals(
@@ -84,14 +82,25 @@ def run_pipeline(
                       f"(below {MIN_SUCCESS_RATE:.0%} threshold)",
             )
 
-        _report("factors", "Downloading FF5 + Momentum factors...")
-        factors = fetch_factors()
+        if cfg["factor_source"] == "kenfrench":
+            _report("factors", "Downloading FF5 + Momentum factors...")
+            factors = fetch_factors()
+        else:
+            _report("factors", f"Building CAPM factors ({market_ticker})...")
+            factors = fetch_capm_factors(
+                market_daily, fred_api_key=fred_api_key,
+                rf_series_id=cfg.get("rf_fred_series"),
+            )
 
-        _report("macro", "Downloading FRED macro data...")
-        try:
-            macro = fetch_macro(api_key=fred_api_key)
-        except (ValueError, RuntimeError) as e:
-            logger.warning(f"Macro data skipped: {e}")
+        if region == "US":
+            _report("macro", "Downloading FRED macro data...")
+            try:
+                macro = fetch_macro(api_key=fred_api_key)
+            except (ValueError, RuntimeError) as e:
+                logger.warning(f"Macro data skipped: {e}")
+                macro = pd.DataFrame()
+        else:
+            # US-specific FRED macro series don't apply to other regions (v1).
             macro = pd.DataFrame()
 
         _report("features", "Computing price features...")
@@ -144,7 +153,7 @@ def run_pipeline(
         )
 
         _report("assembly", "Appending to dataset...")
-        final = append_to_dataset(assembled)
+        final = append_to_dataset(assembled, region=region)
 
         months_added = sorted(assembled["ym"].unique())
         return PipelineResult(
