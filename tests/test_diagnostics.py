@@ -14,7 +14,18 @@ from core.diagnostics import (
     bootstrap_sharpe_ci,
     bootstrap_alpha_ci,
     multiple_testing_hurdle,
+    compute_r2_oos,
 )
+
+
+def _r2_preds(pred_fn, n_months=14, n=50, seed=0):
+    rng = np.random.RandomState(seed)
+    months = [f"{2020 + i // 12:04d}-{i % 12 + 1:02d}" for i in range(n_months)]
+    out = {}
+    for m in months:
+        r = rng.randn(n) * 0.10 + 0.01
+        out[m] = pd.DataFrame({"permno": range(n), "pred": pred_fn(r), "y_raw": r})
+    return out
 
 
 def test_performance_metrics(sample_returns):
@@ -94,6 +105,25 @@ def test_feature_drift_survives_all_nan_columns():
     assert "good" in result["feature"].values
     assert "all_nan" not in result["feature"].values
     assert bool(result[result["feature"] == "good"]["flag"].iloc[0])
+
+
+def test_r2_oos_perfect_standardized_forecast():
+    # pred == within-month standardized realized return -> R2 ~ 1 on the model's scale
+    preds = _r2_preds(lambda r: (r - r.mean()) / r.std())
+    assert compute_r2_oos(preds) > 0.99
+
+
+def test_r2_oos_mean_forecast_is_about_zero():
+    # forecasting 0 (the standardized mean) -> R2 ~ 0, not hugely negative
+    preds = _r2_preds(lambda r: np.zeros_like(r))
+    assert abs(compute_r2_oos(preds)) < 0.05
+
+
+def test_r2_oos_not_dominated_by_scale():
+    # A standardized-scale forecast with real skill scores positive, where the old
+    # raw-scale comparison would have been dominated by the y_xs/y_raw scale gap.
+    preds = _r2_preds(lambda r: 0.6 * (r - r.mean()) / r.std())
+    assert compute_r2_oos(preds) > 0.3
 
 
 def _monthly(start_year, n_years):

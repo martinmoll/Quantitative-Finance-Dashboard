@@ -199,18 +199,22 @@ def alpha_decay(
 
 
 def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
-    """Out-of-sample R² (Campbell & Thompson 2008).
+    """Out-of-sample R² (Campbell & Thompson 2008), on the model's scale.
 
-    R²_OOS = 1 - Σ(r_i - r̂_i)² / Σ(r_i - r̄)²
+    The models forecast the cross-sectionally *standardized* return (y_xs,
+    std ≈ 1), not raw returns (std ≈ 0.1). Comparing a standardized forecast
+    directly to raw returns makes R² dominated by that ~9x scale gap rather than
+    forecast skill — it reads hugely negative on every run. So realized returns
+    are standardized within each month before the comparison, which is
+    equivalent to evaluating the forecast against y_xs (what it trained on).
 
-    where r̂_i are model forecasts and r̄ is the expanding-window
-    cross-sectional mean of realized returns up to (but not including)
-    each month.
+    R²_OOS = 1 - Σ(z_i - r̂_i)² / Σ(z_i - z̄)², where z is the within-month
+    z-score of the realized return and z̄ the expanding-window mean (≈ 0).
     """
     months = sorted(predictions.keys())
     ss_res = 0.0
     ss_tot = 0.0
-    cumulative_returns: list[float] = []
+    cumulative: list[float] = []
 
     for m in months:
         df = predictions[m]
@@ -220,17 +224,22 @@ def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
         if len(valid) < 5:
             continue
 
-        if len(cumulative_returns) < 10:
-            cumulative_returns.extend(valid["y_raw"].tolist())
+        r = valid["y_raw"].values
+        sd = r.std()
+        if sd == 0:
+            continue
+        z = (r - r.mean()) / sd  # within-month standardized realized return
+
+        if len(cumulative) < 10:
+            cumulative.extend(z.tolist())
             continue
 
-        mean_prev = np.mean(cumulative_returns)
+        mean_prev = np.mean(cumulative)
+        pred = valid["pred"].values
+        ss_res += float(((z - pred) ** 2).sum())
+        ss_tot += float(((z - mean_prev) ** 2).sum())
 
-        residuals = (valid["y_raw"] - valid["pred"]).values
-        ss_res += float((residuals ** 2).sum())
-        ss_tot += float(((valid["y_raw"].values - mean_prev) ** 2).sum())
-
-        cumulative_returns.extend(valid["y_raw"].tolist())
+        cumulative.extend(z.tolist())
 
     if ss_tot == 0:
         return np.nan
