@@ -14,17 +14,30 @@ UNIVERSES = {
     "Oslo Børs": "ose",
 }
 
-# Curated list of liquid Oslo Stock Exchange names (OBX core + liquid mid-caps),
-# with the Yahoo Finance ".OL" suffix. Hardcoded because the Oslo Wikipedia table
-# is far less reliable than the S&P/Nasdaq ones; the pipeline drops any ticker
-# that fails to fetch, so a few stale names are harmless.
+# Curated list of liquid Oslo Stock Exchange names (~OSEBX scale), with the
+# Yahoo Finance ".OL" suffix. Hardcoded because the Oslo Wikipedia table is far
+# less reliable than the S&P/Nasdaq ones; every ticker here was verified to
+# return data from Yahoo Finance. The pipeline drops any that later fail to
+# fetch, so a few stale names are harmless.
 _OSE_TICKERS = [
+    # OBX core + large caps
     "EQNR.OL", "DNB.OL", "AKRBP.OL", "TEL.OL", "MOWI.OL", "NHY.OL", "YAR.OL",
     "ORK.OL", "KOG.OL", "SALM.OL", "STB.OL", "GJF.OL", "SUBC.OL", "TGS.OL",
     "FRO.OL", "AKSO.OL", "BAKKA.OL", "SCATC.OL", "TOM.OL", "NOD.OL", "ELK.OL",
     "AKER.OL", "LSG.OL", "BWLPG.OL", "VAR.OL", "AUSS.OL", "OTL.OL", "KID.OL",
     "MPCC.OL", "RECSI.OL", "ENTRA.OL", "BWO.OL", "OET.OL", "HAFNI.OL",
     "WAWI.OL", "PROT.OL", "EPR.OL", "NORBT.OL",
+    # Banks & finance
+    "MING.OL", "NONG.OL", "B2I.OL", "ELMRA.OL", "ABG.OL",
+    # Industrials & services
+    "BRG.OL", "ATEA.OL", "VEI.OL", "MULTI.OL", "KIT.OL", "AFG.OL", "SNI.OL",
+    "AUTO.OL", "ELO.OL", "NSKOG.OL", "KOA.OL",
+    # Energy, shipping & oil services
+    "OKEA.OL", "HAUTO.OL", "CADLR.OL", "DOFG.OL", "BORR.OL", "PEN.OL", "ODF.OL",
+    # Renewables & cleantech
+    "HEX.OL", "NEL.OL", "HPUR.OL", "ZAP.OL", "VOW.OL", "AGLX.OL",
+    # Seafood, consumer & healthcare
+    "GSF.OL", "NAS.OL", "MEDI.OL", "PHO.OL", "NYKD.OL",
 ]
 
 
