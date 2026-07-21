@@ -189,8 +189,45 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+@st.dialog("What to do when monitoring flags “Retrain now”")
+def _retrain_guide(active_alerts):
+    reds = [name for name, a in active_alerts.items() if a["status"] == "red"]
+    if reds:
+        st.markdown("**Red right now:** " + ", ".join(reds))
+    st.markdown(
+        """
+This appears when **2 or more alerts are red** — the model looks stale or
+out-of-distribution, so its predictions are less trustworthy than usual. What to do:
+
+**1. Find out which alert fired** — use the tabs below:
+- **Drift (KS):** which features shifted (usually momentum / interaction features).
+- **Alpha decay:** how fast the signal fades (the half-life).
+- **Signal staleness:** turnover collapsing — the model has stopped changing its bets.
+
+**2. Retrain on recent data.** Go to the **Alpha Model Lab** and re-run. To keep the
+model fresher, shorten the *retrain frequency*, shrink the *rolling window*, or move
+the *OOS start* closer to today so training tracks the current regime.
+
+**3. If drift is the trigger.** Retraining rolls the training window forward so today's
+data is in-distribution again. For fat-tailed momentum features you can also try the
+winsorized (`_w`) feature variants — but winsorizing tames tails, it does **not** remove
+a genuine regime shift.
+
+**4. De-risk until it clears.** When operating out-of-distribution, lower K / position
+sizes or lean on the regime filter — the signal is noisier than the backtest implies.
+
+**Caveat:** on a short panel (e.g. Oslo's ~37 months) high drift can reflect limited
+history and volatile momentum rather than a broken model. Confirm it persists across
+several months before over-reacting.
+        """
+    )
+    if st.button("Go to Alpha Model Lab →", type="primary", use_container_width=True):
+        st.switch_page("pages/3_Alpha_Model_Lab.py")
+
+
 if n_red >= 2:
-    st.button("Trigger retrain →", type="primary")
+    if st.button("What to do →", type="primary"):
+        _retrain_guide(alerts)
 
 theory_section("Distribution Shift", "distribution_shift")
 theory_section("Alpha Decay and Retraining", "alpha_decay")
