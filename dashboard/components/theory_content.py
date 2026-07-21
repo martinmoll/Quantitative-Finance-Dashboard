@@ -26,15 +26,27 @@ The CAPM says a stock's expected return is proportional to its market risk:
 
 $$r_i - r_f = \alpha_i + \beta_i (r_m - r_f) + \epsilon_i$$
 
-- $\beta_i$ measures sensitivity to the market. $\beta > 1$ means the stock amplifies market moves.
-- $\alpha_i$ is the return not explained by market exposure — the "excess" return. A significant positive alpha means the stock outperforms its risk level.
-- We test alpha significance using the t-statistic on the intercept. **Always use HAC (Heteroskedasticity and Autocorrelation Consistent) standard errors** because financial returns exhibit time-varying volatility and serial correlation. Classical standard errors would be too small, making alphas look significant when they aren't.
+where, for stock $i$ over a given period:
+
+- $r_i$ — the **stock's return**.
+- $r_f$ — the **risk-free rate** (e.g. a short-term Treasury yield). The quantity $r_i - r_f$ is the stock's *excess* return: what it earned beyond parking cash safely.
+- $r_m$ — the **market return** (the whole market's return). The quantity $r_m - r_f$ is the *market risk premium* — the market's excess return.
+- $\beta_i$ — the stock's **sensitivity to the market**. $\beta > 1$ amplifies market moves; $\beta < 1$ dampens them.
+- $\alpha_i$ — the **intercept**: the average excess return *not* explained by market exposure. A significant positive alpha means the stock outperforms its risk level (genuine skill, not just beta).
+- $\epsilon_i$ — the **residual**: the stock-specific, idiosyncratic wiggle left over each period, assumed to average zero.
+
+We test alpha significance using the t-statistic on the intercept. **Always use HAC (Heteroskedasticity and Autocorrelation Consistent) standard errors** because financial returns exhibit time-varying volatility and serial correlation. Classical standard errors would be too small, making alphas look significant when they aren't.
 
 **Fama-French 5-Factor Model (FF5)**
 
 Extends CAPM with four additional risk factors:
 
-$$r_i - r_f = \alpha_i + \beta_i^M (r_m - r_f) + s_i \cdot SMB + h_i \cdot HML + r_i \cdot RMW + c_i \cdot CMA + \epsilon_i$$
+$$r_i - r_f = \alpha_i + \beta_i^M (r_m - r_f) + \beta_i^S \, SMB + \beta_i^H \, HML + \beta_i^R \, RMW + \beta_i^C \, CMA + \epsilon_i$$
+
+Here $r_i$, $r_f$, $r_m$, $\alpha_i$, and $\epsilon_i$ mean the same as in CAPM above. Each
+$\beta_i$ (with a superscript for the factor) is a **factor loading** — how strongly stock $i$
+moves with that factor, estimated as a regression slope. $SMB$, $HML$, $RMW$, and $CMA$ are the
+four factors themselves, each a long-short return spread:
 
 | Factor | Captures | Long-Short Construction |
 |--------|----------|------------------------|
@@ -350,11 +362,27 @@ These premiums have persisted across decades and geographies, but they're time-v
     "var_and_tail_risk": r"""
 **Value at Risk (VaR)**
 
-VaR answers: *"What is the worst loss I can expect at a given confidence level?"*
+Value at Risk is a single number that summarizes downside risk: it estimates the
+largest loss a portfolio is likely to suffer over a set period, at a chosen level
+of confidence. It compresses "how risky is this?" into one figure a risk manager
+can budget around.
+
+Every VaR number has three ingredients:
+
+- **A time horizon** — the period the loss is measured over (here, one month).
+- **A confidence level** ($\alpha$) — how sure you want to be (here, 95% or 99%).
+- **A loss amount** — the number VaR reports.
+
+Formally, VaR is the loss threshold that returns fall below only $(1-\alpha)$ of the time:
 
 $$\text{VaR}_\alpha = -\inf\{x : P(R \leq x) > 1 - \alpha\}$$
 
-At 95% confidence, a monthly VaR of 5% means: *"In 19 out of 20 months, we expect to lose no more than 5%."*
+So a **95% monthly VaR of 5%** reads as: *"In 19 months out of 20 we expect to lose
+no more than 5%; in the remaining 1 month we expect to lose more than that."*
+
+**What VaR does _not_ tell you:** it marks the threshold, not how bad things get once
+you cross it — a 5% VaR is the same whether the worst 1-in-20 month loses 6% or 30%.
+That blind spot is exactly what CVaR (below) is designed to fill.
 
 **Three estimation approaches:**
 
@@ -392,7 +420,12 @@ Adjusts the normal quantile for skewness ($S$) and excess kurtosis ($K$):
 
 $$z_{CF} = z + \frac{(z^2-1)S}{6} + \frac{(z^3-3z)K}{24} - \frac{(2z^3-5z)S^2}{36}$$
 
-This captures the reality that financial returns are left-skewed and fat-tailed. When $S=0$ and $K=0$, Cornish-Fisher reduces to parametric VaR.
+This captures two ways real returns depart from the normal bell curve:
+
+- **Left-skewed** ($S < 0$): the distribution is lopsided, with a longer tail on the *loss* side than the gain side — crashes tend to be sharper and deeper than rallies are tall.
+- **Fat-tailed** (excess kurtosis $K > 0$): extreme moves of *either* sign happen far more often than a normal distribution predicts, so a bell-curve model badly understates the odds of a large loss.
+
+Because the normal model ignores both, parametric VaR reads too optimistic; Cornish-Fisher pushes the quantile further into the tail to compensate. When $S=0$ and $K=0$, it reduces to parametric VaR.
 
 ---
 
