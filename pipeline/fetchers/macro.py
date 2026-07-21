@@ -9,36 +9,49 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_macro(api_key: str | None = None) -> pd.DataFrame:
-    from fredapi import Fred
-
     ensure_cache_dirs()
     key = api_key or FRED_API_KEY
+
+    # No key: reuse a previous download if we have one, else ask for a key.
     if not key:
+        cached = load_cached_macro()
+        if cached is not None:
+            logger.info("No FRED API key — using cached macro data.")
+            return cached
         raise ValueError(
             "FRED API key required. Set FRED_API_KEY environment variable "
             "or get a free key at https://fred.stlouisfed.org/docs/api/api_key.html"
         )
 
-    fred = Fred(api_key=key)
-    series_dict = {}
+    try:
+        from fredapi import Fred
+        fred = Fred(api_key=key)
+        series_dict = {}
 
-    for fred_code, col_name in FRED_SERIES.items():
-        try:
-            s = fred.get_series(fred_code, observation_start="2000-01-01")
-            series_dict[col_name] = s
-        except Exception as e:
-            logger.warning(f"Failed to fetch {fred_code}: {e}")
+        for fred_code, col_name in FRED_SERIES.items():
+            try:
+                s = fred.get_series(fred_code, observation_start="2000-01-01")
+                series_dict[col_name] = s
+            except Exception as e:
+                logger.warning(f"Failed to fetch {fred_code}: {e}")
 
-    if not series_dict:
-        raise RuntimeError("All FRED series downloads failed")
+        if not series_dict:
+            raise RuntimeError("All FRED series downloads failed")
 
-    df = pd.DataFrame(series_dict)
-    df.index.name = "date"
-
-    cache_path = MACRO_CACHE / "fred_data.parquet"
-    df.to_parquet(cache_path)
-
-    return df
+        df = pd.DataFrame(series_dict)
+        df.index.name = "date"
+        df.to_parquet(MACRO_CACHE / "fred_data.parquet")
+        return df
+    except Exception as e:
+        # Network down, bad key, rate-limited: fall back to the last good
+        # download (mirrors the FF5 factor fetcher).
+        cached = load_cached_macro()
+        if cached is not None:
+            logger.warning("FRED fetch failed (%s) — using cached macro data.", e)
+            return cached
+        raise RuntimeError(
+            f"FRED macro fetch failed and no local cache exists: {e}"
+        ) from e
 
 
 def load_cached_macro() -> pd.DataFrame | None:
