@@ -5,3 +5,8 @@ backgroundColor = "#0B375D"
 secondaryBackgroundColor = "#195379"
 textColor = "#FFFFFF"
 font = "sans-serif"
+
+[client]
+# Hide Streamlit's built-in top-right toolbar (incl. the "Deploy" button) —
+# it's framework chrome, unrelated to this research app.
+toolbarMode = "minimal"
