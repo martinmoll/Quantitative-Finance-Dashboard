@@ -8,6 +8,7 @@ from core.diagnostics import (
     feature_ic,
     ks_test,
     feature_drift,
+    recent_training_window,
     alpha_decay,
     signal_staleness,
     bootstrap_sharpe_ci,
@@ -93,6 +94,32 @@ def test_feature_drift_survives_all_nan_columns():
     assert "good" in result["feature"].values
     assert "all_nan" not in result["feature"].values
     assert bool(result[result["feature"] == "good"]["flag"].iloc[0])
+
+
+def _monthly(start_year, n_years):
+    return [f"{y:04d}-{m:02d}" for y in range(start_year, start_year + n_years)
+            for m in range(1, 13)]
+
+
+def test_recent_training_window_expanding():
+    months = _monthly(2016, 5)  # 2016-01 .. 2020-12
+    win = recent_training_window(months, "2018-01", 12, "expanding", None, "2020-12")
+    # last retrain is 2020-01; expanding trains on everything before it
+    assert win[0] == "2016-01" and win[-1] == "2019-12"
+    assert "2020-01" not in win
+
+
+def test_recent_training_window_rolling_is_recent_not_earliest():
+    months = _monthly(2016, 5)
+    win = recent_training_window(months, "2018-01", 12, "rolling", 12, "2020-12")
+    # last 12 months before the 2020-01 retrain — recent, not the 2016 baseline
+    assert win == _monthly(2019, 1)
+    assert "2016-01" not in win
+
+
+def test_recent_training_window_empty_when_no_pre_oos():
+    months = _monthly(2016, 5)
+    assert recent_training_window(months, "2099-01", 12, "expanding", None, "2020-12") == []
 
 
 def test_feature_drift_empty_when_no_train_data():

@@ -209,6 +209,7 @@ if run_clicked:
         "vol_tilt": vol_tilt, "regime_lookback": regime_lookback,
         "strategy_type": strategy_key, "construction_method": construction_method,
         "features": available_features, "window_type": window_type,
+        "oos_start": oos_start, "rolling_window": rolling_window,
     }
     st.success("Backtest complete!")
     render_next_steps("model")

@@ -137,6 +137,36 @@ def feature_drift(
     return ks_test(train_df[cols], current_df[cols], threshold)
 
 
+def recent_training_window(
+    all_months: list[str],
+    oos_start: str,
+    retrain_freq: int,
+    window_type: str,
+    rolling_window: int | None,
+    last_pred_month: str,
+) -> list[str]:
+    """Months the model was most recently trained on.
+
+    This is the right baseline for drift detection: "drift" should mean the
+    current data differs from what the model *actually learned*, not from the
+    earliest history. Mirrors run_walk_forward's training-set selection for the
+    last retrain — expanding uses everything before it, rolling uses the last
+    ``rolling_window`` months. Returns an empty list if there is no pre-OOS
+    history to baseline against (caller can fall back).
+    """
+    months = sorted(all_months)
+    oos_months = [m for m in months if m >= oos_start]
+    if not oos_months:
+        return []
+    retrain_schedule = oos_months[:: max(int(retrain_freq), 1)]
+    candidates = [m for m in retrain_schedule if m <= last_pred_month]
+    last_retrain = candidates[-1] if candidates else oos_months[0]
+    cutoff = months.index(last_retrain)
+    if window_type == "rolling" and rolling_window:
+        return months[max(0, cutoff - int(rolling_window)):cutoff]
+    return months[:cutoff]
+
+
 def alpha_decay(
     predictions: dict[str, pd.DataFrame],
     horizons: list[int] | None = None,

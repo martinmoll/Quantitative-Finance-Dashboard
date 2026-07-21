@@ -4,7 +4,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from core.diagnostics import feature_drift, alpha_decay, signal_staleness, compute_ic_stats
+from core.diagnostics import (
+    feature_drift, recent_training_window, alpha_decay, signal_staleness,
+    compute_ic_stats,
+)
 from core.risk import factor_exposure
 from components.charts import traffic_light_dashboard, bar_chart, STYLE
 from components.theory import theory_section
@@ -60,6 +63,23 @@ months = sorted(predictions.keys())
 features = params.get("features", [])
 available_features = [f for f in features if f in df.columns]
 
+# Drift baseline = the model's most recent training window (what it actually
+# learned from), not the earliest pre-OOS history. Otherwise a rolling model is
+# compared against data far older than anything it trained on, overstating drift.
+_oos_start = params.get("oos_start")
+_baseline_months = (
+    recent_training_window(
+        df["ym"].unique(), _oos_start, params.get("retrain_freq", 12),
+        params.get("window_type", "expanding"), params.get("rolling_window"),
+        months[-1],
+    )
+    if _oos_start is not None and months else None
+)
+drift_train_data = (
+    df[df["ym"].isin(_baseline_months)] if _baseline_months
+    else (df[df["ym"] < months[0]] if months else df.iloc[0:0])
+)
+
 ic = result["ic"]
 rolling_6m_ic = ic.rolling(6, min_periods=3).mean()
 latest_rolling_ic = rolling_6m_ic.iloc[-1] if len(rolling_6m_ic) > 0 else 0
@@ -74,7 +94,7 @@ n_total = 0
 ks_results = None
 if len(months) >= 2 and available_features:
     last_month = months[-1]
-    train_data = df[df["ym"] < months[0]]
+    train_data = drift_train_data
     current_data = df[df["ym"] == last_month]
     drift = feature_drift(train_data, current_data, available_features)
     if not drift.empty:
@@ -183,6 +203,12 @@ tab_drift, tab_decay, tab_stale = st.tabs(["Drift (KS)", "Alpha decay", "Signal 
 # =========================================================================
 with tab_drift:
     st.subheader("KS Test — Distribution Shift Detection")
+    if _baseline_months:
+        st.caption(
+            f"Baseline = the model's most recent training window "
+            f"({_baseline_months[0]} → {_baseline_months[-1]}, {len(_baseline_months)} months), "
+            "compared against the latest month."
+        )
     if ks_results is not None:
         metric_card_row([
             {"label": "Features Flagged", "value": f"{n_flagged}/{n_total} ({pct_flagged:.0%})",
@@ -192,7 +218,7 @@ with tab_drift:
         st.dataframe(ks_results.head(20), use_container_width=True)
 
         if len(months) > 3 and available_features:
-            train_data = df[df["ym"] < months[0]]
+            train_data = drift_train_data
             ks_over_time = {}
             sample_months = months[::max(1, len(months) // 12)]
             for m in sample_months:
