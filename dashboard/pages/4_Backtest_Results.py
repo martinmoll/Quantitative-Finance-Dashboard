@@ -21,6 +21,8 @@ from components.interpretations import (
 )
 from components.workflow import render_workflow_status, render_empty_state, render_next_steps, config_label
 from components.theme import inject_theme, COLORS, FONT_MONO, FONT_SANS
+from core.currency import to_nok_unhedged
+from core.data_loader import region_for_label
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Backtest Results", layout="wide")
@@ -32,6 +34,13 @@ if render_empty_state("results"):
 result = st.session_state.get("backtest_result")
 market = st.session_state.get("market_monthly")
 pinned = st.session_state.get("pinned_configs", [])
+
+
+@st.cache_data(show_spinner=False)
+def _load_usdnok():
+    """Monthly USDNOK return series, cached across reruns."""
+    from pipeline.fetchers.fx import fetch_usdnok_monthly
+    return fetch_usdnok_monthly()
 
 # --- Config Selector ---
 # Selected by index (0 = current run, 1..N = pinned) so two pins with identical
@@ -99,9 +108,29 @@ display_start = st.sidebar.select_slider("Display from", options=oos_months, val
 start_value = st.sidebar.number_input("Starting value ($)", min_value=1, value=10000, step=1000)
 cash_flow = st.sidebar.number_input("Cash flow/period ($)", value=0, step=100)
 
+# Reporting currency — a Norwegian investor funding USD purchases with NOK also
+# earns the USDNOK move. Only offered for the USD (US) book; the Oslo book is
+# already in NOK. Hedged/attribution follow-ups live in FUTURE_IMPROVEMENTS.md.
+fx_ret = None
+if region_for_label(st.session_state.get("active_region", "")) == "US":
+    currency_mode = st.sidebar.radio(
+        "Reporting currency",
+        ["USD", "NOK (unhedged)"],
+        help="Restate returns in NOK by compounding each month's USD return with "
+             "the USDNOK move. Unhedged — no forward hedging applied.",
+    )
+    if currency_mode.startswith("NOK"):
+        try:
+            fx_ret = _load_usdnok()
+        except Exception as e:  # network fetch can fail — degrade to USD
+            st.sidebar.warning(f"USDNOK fetch failed ({e}); showing USD.")
+
 rets = rets[rets.index >= display_start]
 ic = ic[ic.index >= display_start]
 turnover = turnover[turnover.index >= display_start]
+
+if fx_ret is not None:
+    rets = to_nok_unhedged(rets, fx_ret)
 
 # --- KPI data ---
 perf = compute_performance_metrics(rets)
@@ -121,6 +150,15 @@ tab_overview, tab_signal, tab_attribution, tab_costs, tab_compare = st.tabs(
 # OVERVIEW TAB
 # =========================================================================
 with tab_overview:
+    if fx_ret is not None:
+        banner("info",
+               'Returns shown in <span class="mono">NOK</span> — unhedged',
+               "Restated for a Norwegian investor: each month compounds the USD "
+               "return with the USDNOK move. The FF5 alpha still regresses on USD "
+               "factors, so in NOK mode it also absorbs currency swings — read it "
+               "as indicative. Hedged NOK and full FX attribution are planned "
+               "(see FUTURE_IMPROVEMENTS.md).")
+
     # KPI row
     sr_accent = C["positive"] if perf["SR"] >= 1.0 else C["primary"] if perf["SR"] >= 0.5 else C["warning"]
     ret_accent = C["positive"] if perf["Ann Return"] > 0 else C["negative"]
@@ -202,10 +240,15 @@ with tab_overview:
     returns_dict = {"Strategy": rets}
     if market is not None:
         spy = market.loc[market.index >= display_start, "spy_ret"]
+        if fx_ret is not None:
+            spy = to_nok_unhedged(spy, fx_ret)
         returns_dict["SPY"] = spy
     for p in pinned:
         p_rets = p["result"]["monthly_returns"]
-        returns_dict[p["label"]] = p_rets[p_rets.index >= display_start]
+        p_rets = p_rets[p_rets.index >= display_start]
+        if fx_ret is not None:
+            p_rets = to_nok_unhedged(p_rets, fx_ret)
+        returns_dict[p["label"]] = p_rets
 
     with chart_left:
         fig = cumulative_wealth_chart(returns_dict, start_value, cash_flow)
@@ -384,6 +427,8 @@ with tab_compare:
         cur_result = st.session_state.get("backtest_result")
         cur_rets = cur_result["monthly_returns"]
         cur_rets = cur_rets[cur_rets.index >= display_start]
+        if fx_ret is not None:
+            cur_rets = to_nok_unhedged(cur_rets, fx_ret)
         cur_ic = cur_result["ic"]
         cur_ic = cur_ic[cur_ic.index >= display_start]
         cur_perf = compute_performance_metrics(cur_rets)
@@ -395,6 +440,8 @@ with tab_compare:
         for p in pinned:
             p_rets = p["result"]["monthly_returns"]
             p_rets = p_rets[p_rets.index >= display_start]
+            if fx_ret is not None:
+                p_rets = to_nok_unhedged(p_rets, fx_ret)
             p_perf = compute_performance_metrics(p_rets)
             p_perf["Strategy"] = p["label"]
             p_ic = p["result"]["ic"]
