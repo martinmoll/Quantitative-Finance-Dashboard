@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 from features import (
@@ -6,6 +7,8 @@ from features import (
     get_tier_defaults,
     build_features_linear,
     build_features_ensemble,
+    _winsorize_xs,
+    WINSORIZE_FEATURES,
 )
 
 
@@ -108,6 +111,41 @@ def test_precompute_features_adds_columns(sample_panel):
     assert "quality_composite" in new_cols
     assert "momentum_composite" in new_cols
     assert "mom_x_quality" in new_cols
+
+
+def test_winsorized_group_registered():
+    assert "interactions_winsorized" in FEATURE_GROUPS
+    assert "mom_x_vol_xs_w" in FEATURE_GROUPS["interactions_winsorized"]
+
+
+def test_tier_defaults_exclude_winsorized():
+    # winsorized variants are opt-in, never in the default feature set
+    for tier in (1, 2):
+        assert not any(f.endswith("_w") for f in get_tier_defaults(tier))
+
+
+def test_winsorize_xs_clips_per_month():
+    ym = pd.Series(["2020-01"] * 100 + ["2020-02"] * 100)
+    x = pd.Series(list(np.linspace(-1, 1, 99)) + [100.0]
+                  + list(np.linspace(-1, 1, 100)))
+    w = _winsorize_xs(x, ym, limit=3.0)
+    m1 = x[:100]
+    assert w[:100].max() < 100                                  # outlier pulled in
+    assert w[:100].max() <= m1.mean() + 3 * m1.std() + 1e-9     # within ±3σ of month 1
+    assert np.allclose(w[100:].values, x[100:].values)          # clean month untouched
+
+
+def test_precompute_adds_winsorized_variants():
+    n = 60
+    df = pd.DataFrame({
+        "ym": ["2020-01"] * 30 + ["2020-02"] * 30,
+        "ret_2_12_xs": np.random.randn(n),
+        "ivol_xs": np.random.randn(n),
+        "mom_x_vol_xs": np.random.randn(n),
+    })
+    out = precompute_features(df)
+    assert "mom_x_vol_xs_w" in out.columns    # raw drift-prone, winsorized
+    assert "mom_x_lowivol_w" in out.columns   # engineered interaction, winsorized
 
 
 def test_backward_compat_linear(sample_panel):

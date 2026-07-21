@@ -169,6 +169,29 @@ def build_features_ensemble(df_slice):
 # Feature metadata and precomputation (added for multipage dashboard)
 # ---------------------------------------------------------------------------
 
+# Interaction / nonlinear features whose fat tails drive KS distribution drift.
+# Per-month winsorized variants (suffix ``_w``) are provided so a more-stationary
+# version can be A/B tested against the originals. Opt-in only — excluded from
+# the tier defaults (see get_tier_defaults), so the baseline is unchanged.
+WINSORIZE_FEATURES = [
+    "mom_x_vol_xs", "mom_x_size_xs", "ret_vs_ind_xs",
+    "ret_2_12_xs_sq", "mom_x_lowivol", "momentum_composite",
+]
+
+
+def _winsorize_xs(s: pd.Series, ym: pd.Series, limit: float = 3.0) -> pd.Series:
+    """Clip each month's cross-section to ±``limit`` standard deviations.
+
+    Per-month, so no look-ahead. Pulling in the tails makes a feature's
+    distribution more stable across regimes — the fat, shifting tails of the
+    product and squared features are exactly what the KS drift test flags.
+    """
+    def _clip(x):
+        lo, hi = x.mean() - limit * x.std(), x.mean() + limit * x.std()
+        return x.clip(lo, hi)
+    return s.groupby(ym).transform(_clip)
+
+
 FEATURE_GROUPS = {
     "momentum": [
         "ret_1_xs", "ret_2_12_xs", "ret_2_6_xs", "ret_13_36_xs",
@@ -211,6 +234,7 @@ FEATURE_GROUPS = {
     "nonlinear": [
         "ret_2_12_xs_sq", "ret_1_xs_sq", "sue_xs_sq", "bm_xs_sq", "revision_xs_sq",
     ],
+    "interactions_winsorized": [f"{c}_w" for c in WINSORIZE_FEATURES],
 }
 
 
@@ -223,7 +247,9 @@ def get_tier_defaults(tier: int) -> list[str]:
     if tier == 1:
         core = list(_TIER1_CORE)
         engineered = []
-        for group in FEATURE_GROUPS.values():
+        for name, group in FEATURE_GROUPS.items():
+            if name == "interactions_winsorized":
+                continue  # opt-in only, not a default
             for f in group:
                 if not f.endswith("_xs"):
                     engineered.append(f)
@@ -231,7 +257,9 @@ def get_tier_defaults(tier: int) -> list[str]:
 
     # Tier 2: all _xs columns + all engineered
     all_features = []
-    for group in FEATURE_GROUPS.values():
+    for name, group in FEATURE_GROUPS.items():
+        if name == "interactions_winsorized":
+            continue  # opt-in only, not a default
         all_features.extend(group)
     return sorted(set(all_features))
 
@@ -246,4 +274,9 @@ def precompute_features(df: pd.DataFrame) -> pd.DataFrame:
     engineered = _build_engineered_features(df)
     for col in engineered.columns:
         result[col] = engineered[col]
+    # Opt-in winsorized variants of the drift-prone features (for A/B testing).
+    if "ym" in result.columns:
+        for col in WINSORIZE_FEATURES:
+            if col in result.columns:
+                result[f"{col}_w"] = _winsorize_xs(result[col], result["ym"])
     return result
