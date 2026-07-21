@@ -401,44 +401,40 @@ def interpret_r2_oos(r2_oos: float) -> dict:
     if np.isnan(r2_oos):
         return {"level": "info", "text": "R²_OOS unavailable."}
 
-    if r2_oos < -0.05:
-        return {"level": "error", "text": (
-            f"{base} Negative R²_OOS means the model's point forecasts are "
-            f"worse than simply predicting the historical cross-sectional mean. "
-            f"Note: a negative R²_OOS does not necessarily invalidate positive "
-            f"IC — the model may rank stocks correctly (good IC) while having "
-            f"poorly calibrated magnitudes. If IC is positive, the ranking "
-            f"signal is useful for portfolio construction even though point "
-            f"accuracy is poor."
+    scale_note = (
+        "R²_OOS is measured on the *standardized* return the model forecasts, so "
+        "it is on the same scale as IC² — cross-sectional return R² is tiny even "
+        "for good models."
+    )
+
+    if r2_oos < -0.02:
+        return {"level": "warning", "text": (
+            f"{base} The forecast *magnitudes* are miscalibrated — predictions are "
+            f"more extreme than realized returns justify, so squared errors exceed "
+            f"the naive 'predict the mean' forecast. {scale_note} Crucially this "
+            f"does **not** invalidate a positive IC: the model can rank stocks "
+            f"correctly (what the portfolio actually uses) while getting the scale "
+            f"of its predictions wrong. Judge selection skill by IC; read R²_OOS as "
+            f"a magnitude-calibration check."
         )}
     if r2_oos < 0:
-        return {"level": "warning", "text": (
-            f"{base} Slightly negative — the model's forecasts are roughly "
-            f"equivalent to the naive mean forecast. In asset pricing, this is "
-            f"common; Campbell & Thompson (2008) show that even R²_OOS of "
-            f"0.5–1% is economically significant for monthly returns because "
-            f"small improvements in forecasts compound into large portfolio gains."
-        )}
-    if r2_oos < 0.005:
         return {"level": "info", "text": (
-            f"{base} Small but positive — the model adds marginal predictive "
-            f"value beyond the naive mean. Per Campbell & Thompson (2008), "
-            f"R²_OOS above 0.5% for monthly stock returns is economically "
-            f"meaningful because even tiny forecast improvements, applied to "
-            f"many stocks monthly, compound through the Fundamental Law "
-            f"(IR = IC × √BR)."
+            f"{base} Roughly matches the naive mean forecast — typical for equity "
+            f"returns, whose magnitudes are close to unpredictable month to month. "
+            f"{scale_note} A positive IC can still coexist with this; ranking, not "
+            f"magnitude, is what drives the portfolio."
         )}
     if r2_oos < 0.02:
         return {"level": "success", "text": (
-            f"{base} Good predictive accuracy for financial data. An R²_OOS "
-            f"of 0.5–2% is in the top tier of published equity return "
-            f"forecasting models. This level of predictability translates "
-            f"to economically large portfolio gains via the Fundamental Law."
+            f"{base} Positive out-of-sample — the forecast genuinely beats "
+            f"predicting the cross-sectional mean, and its magnitudes are "
+            f"reasonably calibrated. {scale_note} 0–2% corresponds to a forecast "
+            f"correlation up to ~0.14, which is strong for monthly equity returns."
         )}
     return {"level": "success", "text": (
-        f"{base} Unusually high for equity return prediction — verify that "
-        f"no look-ahead bias is present. Most legitimate models achieve "
-        f"R²_OOS below 2%."
+        f"{base} Unusually high for cross-sectional equity prediction — it implies "
+        f"a forecast correlation above ~0.14. Sanity-check for look-ahead bias or a "
+        f"leaked target before trusting it. {scale_note}"
     )}
 
 
