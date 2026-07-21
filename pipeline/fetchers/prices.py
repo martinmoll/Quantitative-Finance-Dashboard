@@ -38,7 +38,7 @@ def fetch_prices(
                 threads=True,
                 progress=False,
             )
-            if not df.empty:
+            if df is not None and not df.empty:
                 all_frames.append(df)
         except Exception as e:
             logger.warning(f"Batch {idx + 1} failed: {e}")
