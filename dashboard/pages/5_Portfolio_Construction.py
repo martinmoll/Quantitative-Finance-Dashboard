@@ -134,9 +134,13 @@ with tab_holdings:
         )
         held = holdings[sel_month].copy()
         held["ticker"] = held["permno"].map(tk_map).fillna(held["permno"].astype(str))
+        if "weight" in held.columns and "y_raw" in held.columns:
+            # This month's contribution to the portfolio return: weight x return.
+            held["contribution"] = held["weight"] * held["y_raw"]
 
         display_cols = []
-        for c in ["ticker", "side", "sector", "pred", "y_raw", "weight", "permno"]:
+        for c in ["ticker", "side", "sector", "pred", "y_raw", "weight",
+                  "contribution", "permno"]:
             if c in held.columns:
                 display_cols.append(c)
         show = held[display_cols].copy()
@@ -146,6 +150,8 @@ with tab_holdings:
             show["y_raw"] = (show["y_raw"] * 100).round(2).astype(str) + "%"
         if "weight" in show.columns:
             show["weight"] = (show["weight"] * 100).round(2).astype(str) + "%"
+        if "contribution" in show.columns:
+            show["contribution"] = (show["contribution"] * 100).round(2).astype(str) + "%"
         st.markdown(f"**{sel_month}** ({len(held)} positions)")
         st.dataframe(show.reset_index(drop=True), use_container_width=True)
 
@@ -169,6 +175,15 @@ with tab_holdings:
             agg_spec["avg_pred"] = ("pred", "mean")
         if "y_raw" in combined.columns:
             agg_spec["avg_return"] = ("y_raw", "mean")
+            # Compounded return over the months the stock was actually held.
+            agg_spec["total_return"] = (
+                "y_raw", lambda s: (1 + s.dropna()).prod() - 1
+            )
+        if "weight" in combined.columns and "y_raw" in combined.columns:
+            # Sum of monthly (weight x return): the stock's additive contribution
+            # to portfolio return over the whole period.
+            combined["_contribution"] = combined["weight"] * combined["y_raw"]
+            agg_spec["total_contribution"] = ("_contribution", "sum")
         hist = combined.groupby(["ticker", "permno"]).agg(**agg_spec).reset_index()
         hist["pct_months"] = (hist["months_held"] / len(months_sorted) * 100).round(1).astype(str) + "%"
         hist = hist.sort_values("months_held", ascending=False)
@@ -178,8 +193,13 @@ with tab_holdings:
             hist["avg_weight"] = (hist["avg_weight"] * 100).round(2).astype(str) + "%"
         if "avg_return" in hist.columns:
             hist["avg_return"] = (hist["avg_return"] * 100).round(2).astype(str) + "%"
+        if "total_return" in hist.columns:
+            hist["total_return"] = (hist["total_return"] * 100).round(2).astype(str) + "%"
+        if "total_contribution" in hist.columns:
+            hist["total_contribution"] = (hist["total_contribution"] * 100).round(2).astype(str) + "%"
         order = ["ticker", "permno", "months_held", "pct_months",
-                 "avg_weight", "avg_pred", "avg_return"]
+                 "avg_weight", "avg_pred", "avg_return", "total_return",
+                 "total_contribution"]
         hist = hist[[c for c in order if c in hist.columns]]
         st.dataframe(hist.reset_index(drop=True), use_container_width=True)
 
