@@ -25,6 +25,7 @@ def run_pipeline(
     fred_api_key: str | None = None,
     universe: str = "S&P 500",
     region: str = "US",
+    period: str = "3y",
     progress_callback=None,
 ) -> PipelineResult:
     from pipeline.config import region_config
@@ -56,6 +57,7 @@ def run_pipeline(
         _report("prices", "Downloading daily prices...")
         prices = fetch_prices(
             tickers,
+            period=period,
             progress_callback=lambda done, total: _report(
                 "prices", f"Batch {done}/{total}"
             ),
@@ -63,7 +65,7 @@ def run_pipeline(
 
         market_ticker = cfg["market_ticker"]
         _report("prices", f"Downloading {market_ticker} market series...")
-        market_daily = fetch_market_daily(market_ticker)
+        market_daily = fetch_market_daily(market_ticker, period=period)
 
         _report("fundamentals", "Downloading quarterly financials...")
         fund_data = fetch_fundamentals(

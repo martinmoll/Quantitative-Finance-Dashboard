@@ -42,6 +42,14 @@ universe = st.selectbox(
 )
 region = "NO" if universe == "Oslo Børs" else "US"
 
+period = st.selectbox(
+    "History Window",
+    ["1y", "2y", "3y", "5y", "10y", "max"],
+    index=2,
+    help="How far back to download daily prices. Longer windows give more "
+         "history for beta/volatility features but take longer to fetch.",
+)
+
 fred_key = os.environ.get("FRED_API_KEY", "")
 if not fred_key:
     fred_key = st.text_input(
@@ -103,6 +111,7 @@ if st.button("Refresh Data", type="primary", use_container_width=True):
             fred_api_key=fred_key or None,
             universe=universe,
             region=region,
+            period=period,
             progress_callback=progress_callback,
         )
 
