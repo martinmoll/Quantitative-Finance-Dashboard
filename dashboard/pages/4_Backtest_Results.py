@@ -19,7 +19,7 @@ from components.interpretations import (
     render_interpretation, interpret_sharpe, interpret_max_drawdown,
     interpret_ff5_alpha, interpret_r2_oos, interpret_turnover,
 )
-from components.workflow import render_workflow_status, render_empty_state, render_next_steps
+from components.workflow import render_workflow_status, render_empty_state, render_next_steps, config_label
 from components.theme import inject_theme, COLORS, FONT_MONO, FONT_SANS
 import plotly.graph_objects as go
 
@@ -34,18 +34,22 @@ market = st.session_state.get("market_monthly")
 pinned = st.session_state.get("pinned_configs", [])
 
 # --- Config Selector ---
-config_options = ["Current Run"]
-config_map = {"Current Run": {
+# Selected by index (0 = current run, 1..N = pinned) so two pins with identical
+# labels never collide the way a label-keyed map does.
+current_config = {
     "result": result,
     "params": st.session_state.get("backtest_params", {}),
     "predictions": st.session_state.get("backtest_predictions"),
-}}
-for p in pinned:
-    config_options.append(p["label"])
-    config_map[p["label"]] = p
+}
+configs = [current_config] + list(pinned)
+
+
+def _config_name(i):
+    return "Current Run" if i == 0 else pinned[i - 1]["label"]
+
 
 # --- Header ---
-active_label = "Current Run"
+active_idx = 0
 C = COLORS
 params = st.session_state.get("backtest_params", {})
 
@@ -69,16 +73,20 @@ with head_left:
 with head_right:
     r_col1, r_col2 = st.columns(2)
     with r_col1:
-        if len(config_options) > 1:
-            active_label = st.selectbox("View config", config_options, label_visibility="collapsed")
+        if len(configs) > 1:
+            active_idx = st.selectbox(
+                "View config", range(len(configs)), format_func=_config_name,
+                label_visibility="collapsed",
+            )
     with r_col2:
         pin_clicked = st.button("Pin to compare", type="primary")
 
 render_workflow_status("results")
 
-active = config_map[active_label]
+active = configs[active_idx]
 active_result = active["result"]
 active_params = active.get("params", {})
+is_current_run = active_idx == 0
 
 rets = active_result["monthly_returns"]
 ic = active_result["ic"]
@@ -329,7 +337,7 @@ with tab_attribution:
     # Feature Importance (full view)
     theory_section("Feature Importance", "feature_importance")
     importance = active.get("feature_importance", st.session_state.get("backtest_feature_importance"))
-    if active_label != "Current Run" and importance is None:
+    if not is_current_run and importance is None:
         st.info("Feature importance is only available for the most recent run.")
     if importance is not None and len(importance) > 0:
         st.subheader("Feature Importance (Top 20)")
@@ -404,7 +412,7 @@ if pin_clicked:
     cur_params = st.session_state.get("backtest_params")
     cur_pinned = st.session_state.get("pinned_configs", [])
     if cur_result is not None and len(cur_pinned) < 4:
-        label = f"{cur_params['model_name']} {cur_params['construction_method']} K={cur_params['K']}"
+        label = config_label(cur_params)
         cur_pinned.append({
             "label": label, "result": cur_result, "params": cur_params,
             "predictions": st.session_state.get("backtest_predictions"),

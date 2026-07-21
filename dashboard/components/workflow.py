@@ -171,6 +171,49 @@ def render_next_steps(
         )
 
 
+def _config_signature(params: dict) -> str:
+    """Short hash of the full config, so runs differing only in model
+    hyperparameters (or anything else) get a distinct label."""
+    import hashlib
+    import json
+    payload = {k: v for k, v in params.items() if k != "features"}
+    payload["features"] = sorted(params.get("features", []) or [])
+    raw = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()[:4]
+
+
+def config_label(params: dict) -> str:
+    """Human-readable, unique-per-config label for a pinned run.
+
+    The old label (model + method + K) collided whenever two runs differed only
+    in retrain/window/tilts/model hyperparameters — and the label is used as a
+    dict key for the config selector and the chart overlays, so collisions made
+    all but one run disappear. This adds the result-affecting parameters plus a
+    short signature of the full config so distinct runs get distinct labels.
+    """
+    window = params.get("window_type", "expanding")
+    if window == "rolling":
+        rw = params.get("rolling_window")
+        win = f"roll{rw}" if rw else "roll"
+    else:
+        win = "exp"
+    parts = [
+        str(params.get("model_name", "?")),
+        str(params.get("construction_method", "?")),
+        f"K={params.get('K', '?')}",
+        f"{win}/{params.get('retrain_freq', '?')}m",
+    ]
+    if params.get("strategy_type") == "long_short":
+        parts.append("L/S")
+    if params.get("vol_tilt"):
+        parts.append(f"vt={params['vol_tilt']}")
+    if params.get("regime_lookback") is not None:
+        parts.append(f"rl={params['regime_lookback']}")
+    if params.get("auto_tune"):
+        parts.append("tuned")
+    return " · ".join(parts) + f" · #{_config_signature(params)}"
+
+
 def render_empty_state(current_stage: str) -> bool:
     """Render a rich empty state when required data is missing.
 

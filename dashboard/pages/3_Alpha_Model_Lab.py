@@ -10,7 +10,7 @@ from core.diagnostics import compute_performance_metrics
 from features import FEATURE_GROUPS, get_tier_defaults
 import cache_manager as cache
 from components.theory import theory_section
-from components.workflow import render_workflow_status, render_next_steps
+from components.workflow import render_workflow_status, render_next_steps, config_label
 from components.theme import inject_theme, COLORS, FONT_SANS
 
 st.set_page_config(page_title="Alpha Model Lab", layout="wide")
@@ -221,7 +221,7 @@ if pin_clicked:
     params = st.session_state.get("backtest_params")
     pinned = st.session_state.get("pinned_configs", [])
     if result is not None and len(pinned) < 4:
-        label = f"{params['model_name']} {params['construction_method']} K={params['K']}"
+        label = config_label(params)
         pinned.append({
             "label": label, "result": result, "params": params,
             "predictions": st.session_state.get("backtest_predictions"),
