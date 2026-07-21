@@ -74,5 +74,17 @@ html, body, [class*="css"] {
 """
 
 
+# Force the app background to the navy canvas via CSS. config.toml's
+# backgroundColor is unreliable (needs a full restart and can be missed), so we
+# set it deterministically here instead of depending on the base theme.
+_APP_BG_CSS = (
+    "<style>"
+    f'.stApp, [data-testid="stAppViewContainer"] {{ background-color: {COLORS["canvas"]}; }}'
+    '[data-testid="stHeader"] { background-color: transparent; }'
+    "</style>"
+)
+
+
 def inject_theme():
     st.markdown(_THEME_CSS, unsafe_allow_html=True)
+    st.markdown(_APP_BG_CSS, unsafe_allow_html=True)
