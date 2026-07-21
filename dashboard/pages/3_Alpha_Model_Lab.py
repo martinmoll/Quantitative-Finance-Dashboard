@@ -161,6 +161,7 @@ if run_clicked:
         model_name, model_params, retrain_freq,
         feature_cols=available_features, window_type=window_type,
         auto_tune=auto_tune, data_fingerprint=cache.dataset_fingerprint(df),
+        oos_start=oos_start, rolling_window=rolling_window,
     )
     predictions = cache.get_predictions(pred_key)
 

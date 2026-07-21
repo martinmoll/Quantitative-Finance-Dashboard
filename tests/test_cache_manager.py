@@ -33,3 +33,14 @@ def test_prediction_key_includes_dataset():
     k1 = cache.prediction_key(**base, data_fingerprint="aaaa")
     k2 = cache.prediction_key(**base, data_fingerprint="bbbb")
     assert k1 != k2
+
+
+def test_prediction_key_includes_oos_start_and_window():
+    # Both change the walk-forward output, so both must change the cache key.
+    base = dict(model_type="HGB", model_params={"depth": 4}, retrain_every=12,
+                feature_cols=["a", "b"], window_type="rolling")
+    k_2015 = cache.prediction_key(**base, oos_start="2015-01", rolling_window=60)
+    k_2021 = cache.prediction_key(**base, oos_start="2021-01", rolling_window=60)
+    k_win36 = cache.prediction_key(**base, oos_start="2015-01", rolling_window=36)
+    assert k_2015 != k_2021    # different OOS start -> different key
+    assert k_2015 != k_win36   # different rolling window -> different key

@@ -38,7 +38,7 @@ def dataset_fingerprint(df: pd.DataFrame) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding", auto_tune=False, data_fingerprint=None):
+def prediction_key(model_type, model_params, retrain_every, feature_cols=None, window_type="expanding", auto_tune=False, data_fingerprint=None, oos_start=None, rolling_window=None):
     return _make_key({
         'model_type': model_type,
         'model_params': model_params,
@@ -47,6 +47,11 @@ def prediction_key(model_type, model_params, retrain_every, feature_cols=None, w
         'window_type': window_type,
         'auto_tune': auto_tune,
         'data_fingerprint': data_fingerprint,
+        # oos_start and rolling_window both change the walk-forward predictions
+        # (which months are predicted, and the retrain/training windows), so
+        # they must be part of the key or a new start silently reuses old preds.
+        'oos_start': oos_start,
+        'rolling_window': rolling_window,
     })
 
 
