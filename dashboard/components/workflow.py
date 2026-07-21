@@ -86,7 +86,7 @@ def render_workflow_status(current_stage: str) -> None:
         elif is_current:
             circle = (
                 f"background:{C['primary']};color:#fff;"
-                f"box-shadow:0 0 0 4px rgba(91,155,255,0.18);"
+                f"box-shadow:0 0 0 4px rgba(79,195,232,0.18);"
             )
             label_style = f"color:{C['primary']};font-weight:600;"
             symbol = stage["icon"]

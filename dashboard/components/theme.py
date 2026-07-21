@@ -8,16 +8,16 @@ import plotly.io as pio
 # Design tokens
 # ---------------------------------------------------------------------------
 COLORS = {
-    "canvas": "#0B121F",
+    "canvas": "#0B375D",
     "surface": "#141E2E",
-    "raised": "#1B2738",
-    "hairline": "rgba(255,255,255,0.07)",
-    "grid": "rgba(255,255,255,0.06)",
-    "zeroline": "rgba(255,255,255,0.1)",
-    "text": "#E9EEF6",
-    "text_secondary": "#93A1B5",
-    "text_muted": "#64748B",
-    "primary": "#5B9BFF",
+    "raised": "#1C6299",
+    "hairline": "rgba(255,255,255,0.10)",
+    "grid": "rgba(255,255,255,0.08)",
+    "zeroline": "rgba(255,255,255,0.15)",
+    "text": "#FFFFFF",
+    "text_secondary": "#AFC6DD",
+    "text_muted": "#7C97B4",
+    "primary": "#4FC3E8",
     "positive": "#34E0A1",
     "negative": "#F46A6A",
     "warning": "#F5B13D",
@@ -25,7 +25,7 @@ COLORS = {
 
 PIN_COLORS = ["#A78BFA", "#2DD4BF", "#F472B6", "#FB923C"]
 
-COLORWAY = ["#5B9BFF", "#34E0A1", "#F5B13D", "#A78BFA", "#2DD4BF", "#F472B6"]
+COLORWAY = ["#4FC3E8", "#34E0A1", "#F5B13D", "#A78BFA", "#2DD4BF", "#F472B6"]
 
 FONT_SANS = "'IBM Plex Sans', sans-serif"
 FONT_MONO = "'IBM Plex Mono', monospace"

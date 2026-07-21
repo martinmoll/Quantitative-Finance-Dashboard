@@ -115,7 +115,7 @@ def rolling_metric_chart(
         fig.add_trace(go.Scatter(
             x=lower.index, y=lower.values, mode="lines", name="-1σ",
             line=dict(width=0), fill="tonexty",
-            fillcolor="rgba(91,155,255,0.15)", showlegend=False,
+            fillcolor="rgba(79,195,232,0.15)", showlegend=False,
         ))
 
     fig.add_trace(go.Scatter(

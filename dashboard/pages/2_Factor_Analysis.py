@@ -101,7 +101,7 @@ if "Mkt-RF" in factors.columns and len(excess_returns) > window:
     ))
     fig.add_trace(go.Scatter(
         x=beta_df.index, y=beta_df["lower"].values, mode="lines",
-        line=dict(width=0), fill="tonexty", fillcolor="rgba(91,155,255,0.15)",
+        line=dict(width=0), fill="tonexty", fillcolor="rgba(79,195,232,0.15)",
         showlegend=False,
     ))
     fig.add_trace(go.Scatter(

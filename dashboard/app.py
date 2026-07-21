@@ -136,8 +136,8 @@ col_left, col_right = st.columns([1.55, 1])
 
 with col_left:
     st.markdown(
-        f'<div style="background:linear-gradient(135deg,#15243c,#101a2c);'
-        f'border:1px solid rgba(91,155,255,0.22);border-radius:14px;'
+        f'<div style="background:linear-gradient(135deg,#145A8F,#0F4270);'
+        f'border:1px solid rgba(79,195,232,0.22);border-radius:14px;'
         f'padding:28px 24px;margin:0 0 18px;">'
         f'<p style="font-family:{FONT_SANS};font-size:11px;font-weight:600;'
         f'text-transform:uppercase;letter-spacing:.06em;color:{C["primary"]};'
@@ -174,7 +174,7 @@ with col_right:
         model_name = params.get("model_name", "—") if params else "—"
 
         chip_html = (
-            f'<span style="background:rgba(91,155,255,0.14);color:{C["primary"]};'
+            f'<span style="background:rgba(79,195,232,0.14);color:{C["primary"]};'
             f'font-family:{FONT_SANS};font-size:10px;font-weight:600;padding:2px 8px;'
             f'border-radius:6px;position:absolute;top:14px;right:14px;">{model_name}</span>'
         )
