@@ -9,7 +9,7 @@ import plotly.io as pio
 # ---------------------------------------------------------------------------
 COLORS = {
     "canvas": "#0B375D",
-    "surface": "#141E2E",
+    "surface": "rgba(79,195,232,0.20)",  # cyan-tinted glass over the canvas
     "raised": "#1C6299",
     "hairline": "rgba(255,255,255,0.10)",
     "grid": "rgba(255,255,255,0.08)",
