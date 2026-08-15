@@ -220,3 +220,27 @@ def test_factor_alpha_insufficient_data(sample_ff5):
     )
     result = factor_alpha(port_returns, sample_ff5)
     assert result is None
+
+
+def test_market_impact_monotonic_and_spread_floor():
+    from core.risk import market_impact_bps
+    # more participation -> more impact
+    assert market_impact_bps(0.10, 0.20) > market_impact_bps(0.01, 0.20)
+    # more volatile stock -> more impact at the same participation
+    assert market_impact_bps(0.05, 0.40) > market_impact_bps(0.05, 0.15)
+    # zero participation -> only the half-spread
+    assert market_impact_bps(0.0, 0.20, spread_bps=6.0) == 3.0
+
+
+def test_capacity_curve_net_sharpe_decreases_with_aum():
+    from core.risk import capacity_curve
+    df = capacity_curve(
+        gross_ann_return=0.20, ann_vol=0.15, mean_monthly_turnover=0.5,
+        aum_grid=[1e6, 1e8, 1e10], adv_usd=5e7, n_names=10,
+    )
+    assert list(df["aum"]) == [1e6, 1e8, 1e10]
+    # bigger AUM -> more participation -> higher cost -> lower net Sharpe
+    assert df["net_sr"].is_monotonic_decreasing
+    assert df["participation"].iloc[-1] > df["participation"].iloc[0]
+    # at tiny AUM, net Sharpe is close to gross (0.20/0.15 ≈ 1.33)
+    assert df["net_sr"].iloc[0] > 1.2

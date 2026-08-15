@@ -266,3 +266,60 @@ def transaction_cost_drag(
         "net_SR_reduction": float(cost_sr),
         "mean_monthly_turnover": float(mean_monthly_to),
     }
+
+
+def market_impact_bps(
+    participation: float,
+    ann_vol: float,
+    spread_bps: float = 5.0,
+    impact_coef: float = 0.1,
+) -> float:
+    """One-way trading cost (bps): half the bid-ask spread + square-root impact.
+
+    A trade that is a larger fraction of daily volume moves the price more. The
+    empirical square-root law (Almgren et al. 2005) makes impact scale with the
+    stock's volatility and the square root of the participation rate
+    (participation = trade notional / average daily dollar volume):
+
+        impact ≈ impact_coef · σ_daily · √participation
+    """
+    participation = np.maximum(participation, 0.0)
+    daily_vol = ann_vol / np.sqrt(252)
+    impact_frac = impact_coef * daily_vol * np.sqrt(participation)
+    return spread_bps / 2.0 + impact_frac * 1e4
+
+
+def capacity_curve(
+    gross_ann_return: float,
+    ann_vol: float,
+    mean_monthly_turnover: float,
+    aum_grid,
+    adv_usd: float,
+    n_names: int,
+    spread_bps: float = 5.0,
+    impact_coef: float = 0.1,
+) -> pd.DataFrame:
+    """Net Sharpe as a function of AUM (strategy capacity).
+
+    As AUM grows, each rebalance trades a larger dollar amount per name, so
+    participation (trade / ADV) and hence square-root impact rise — costs grow
+    and net return falls. Answers "how big can this get before the edge is eaten
+    by trading costs". Returns a DataFrame with cost and net-Sharpe per AUM.
+    """
+    rows = []
+    for aum in aum_grid:
+        per_name_trade = mean_monthly_turnover * aum / max(n_names, 1)
+        participation = per_name_trade / adv_usd if adv_usd > 0 else 0.0
+        cost_bps = market_impact_bps(participation, ann_vol, spread_bps, impact_coef)
+        # round-trip (buy + sell) monthly cost, annualized
+        ann_cost = 2.0 * mean_monthly_turnover * (cost_bps / 1e4) * 12.0
+        net_ret = gross_ann_return - ann_cost
+        rows.append({
+            "aum": float(aum),
+            "participation": float(participation),
+            "cost_bps": float(cost_bps),
+            "cost_annual": float(ann_cost),
+            "net_return": float(net_ret),
+            "net_sr": float(net_ret / ann_vol) if ann_vol > 0 else np.nan,
+        })
+    return pd.DataFrame(rows)

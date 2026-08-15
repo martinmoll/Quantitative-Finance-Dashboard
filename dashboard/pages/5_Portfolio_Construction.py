@@ -9,7 +9,7 @@ from core.data_loader import permno_ticker_map
 from core.diagnostics import compute_performance_metrics
 from core.risk import (
     risk_contribution, factor_exposure, factor_alpha, rolling_factor_exposure,
-    transaction_cost_drag,
+    transaction_cost_drag, capacity_curve,
 )
 from components.charts import (
     sector_allocation_chart, risk_pie_chart, bar_chart, STYLE,
@@ -355,6 +355,50 @@ with tab_costs:
         render_interpretation(interpret_turnover(
             tc["mean_monthly_turnover"], cost_bps, gross_sr,
         ))
+
+    # --- Capacity: net Sharpe vs AUM (square-root market impact) ---
+    st.markdown("---")
+    st.subheader("Capacity — Net Sharpe vs AUM")
+    st.caption(
+        "Flat bps ignores that trading larger sizes moves the price. This uses a "
+        "square-root market-impact model: as AUM grows, each name's trade is a "
+        "bigger share of daily volume, so impact — and cost — rise."
+    )
+    cap_c1, cap_c2, cap_c3 = st.columns(3)
+    with cap_c1:
+        adv_musd = st.number_input("Daily volume / name ($M)", value=50.0, step=10.0, key="cap_adv")
+    with cap_c2:
+        spread_bps_in = st.number_input("Bid-ask spread (bps)", value=5.0, step=1.0, key="cap_spread")
+    with cap_c3:
+        impact_coef = st.number_input("Impact coefficient", value=0.10, step=0.05, key="cap_impact")
+
+    aum_grid = np.logspace(6, 11, 40)  # $1M -> $100B
+    cap = capacity_curve(
+        perf_cost["Ann Return"], ann_vol, tc["mean_monthly_turnover"],
+        aum_grid, adv_musd * 1e6, params.get("K", 10),
+        spread_bps=spread_bps_in, impact_coef=impact_coef,
+    )
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=cap["aum"], y=cap["net_sr"], mode="lines",
+        line=dict(color=C["primary"], width=2), name="Net Sharpe",
+    ))
+    fig.add_hline(y=gross_sr, line_dash="dash", line_color=C["positive"],
+                  annotation_text="Gross Sharpe")
+    fig.update_layout(
+        template="alpha", title="Strategy Capacity", xaxis_type="log",
+        xaxis_title="AUM ($, log scale)", yaxis_title="Net Sharpe",
+        height=380, margin=dict(t=40, b=40),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    below = cap[cap["net_sr"] < gross_sr / 2]
+    if len(below):
+        cap_aum = below["aum"].iloc[0]
+        st.caption(f"Estimated capacity (net Sharpe stays above ½ of gross): "
+                   f"~${cap_aum / 1e9:.1f}B AUM.")
+    else:
+        st.caption("Net Sharpe stays above ½ of gross across the AUM range shown.")
 
 # =========================================================================
 # COMPARE METHODS TAB
