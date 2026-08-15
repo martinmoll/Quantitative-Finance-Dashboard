@@ -167,6 +167,44 @@ def recent_training_window(
     return months[:cutoff]
 
 
+def latest_month_staleness(
+    df: pd.DataFrame,
+    baseline_months: list[str],
+    month: str,
+    features: list[str],
+    missing_thresh: float = 0.5,
+) -> dict:
+    """How many `features` are *newly* sparse/stale in `month` vs the baseline.
+
+    Un-refreshed fundamentals show up as missing or fillna-zero, so a feature
+    whose cross-section collapses to mostly NaN/0 this month — but wasn't like
+    that during training — is a data-freshness artifact, not a real distribution
+    shift. Lets the KS drift panel tell "the market moved" apart from "the data
+    just hasn't updated". A feature counts as newly stale when >``missing_thresh``
+    of its values this month are NaN or exactly 0, and that is markedly worse
+    (>0.2) than in the baseline.
+    """
+    cur = df[df["ym"] == month]
+    base = df[df["ym"].isin(baseline_months)]
+    cols = [c for c in features if c in cur.columns and c in base.columns]
+
+    def _degenerate(frame, col):
+        v = frame[col]
+        return float((v.isna() | (v == 0)).mean()) if len(v) else 0.0
+
+    newly_stale = [
+        c for c in cols
+        if _degenerate(cur, c) > missing_thresh
+        and _degenerate(cur, c) > _degenerate(base, c) + 0.2
+    ]
+    return {
+        "n_features": len(cols),
+        "n_newly_stale": len(newly_stale),
+        "newly_stale": newly_stale,
+        "fraction": len(newly_stale) / len(cols) if cols else float("nan"),
+    }
+
+
 def alpha_decay(
     predictions: dict[str, pd.DataFrame],
     horizons: list[int] | None = None,

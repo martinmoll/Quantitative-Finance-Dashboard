@@ -5,8 +5,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from core.diagnostics import (
-    feature_drift, recent_training_window, alpha_decay, signal_staleness,
-    compute_ic_stats,
+    feature_drift, recent_training_window, latest_month_staleness,
+    alpha_decay, signal_staleness, compute_ic_stats,
 )
 from core.risk import factor_exposure
 from components.charts import traffic_light_dashboard, bar_chart, STYLE
@@ -253,6 +253,34 @@ with tab_drift:
         ])
         render_interpretation(interpret_ks_shift(pct_flagged, n_flagged, n_total))
         st.dataframe(ks_results.head(20), use_container_width=True)
+
+        # Real drift vs stale data: are the flagged features un-refreshed this month?
+        if _baseline_months:
+            flagged = ks_results.loc[ks_results["flag"], "feature"].tolist()
+            stale = latest_month_staleness(df, _baseline_months, last_month, flagged)
+            if stale["n_features"] > 0 and stale["n_newly_stale"] > 0:
+                frac = stale["fraction"]
+                tail = (
+                    "Most of the flagged drift looks like a data artifact — verify "
+                    "fundamentals have updated before treating it as a real shift or "
+                    "retraining." if frac >= 0.5 else
+                    "A minority looks like stale data; the rest appears to be a genuine shift."
+                )
+                banner(
+                    "warning" if frac >= 0.5 else "info",
+                    f'Data-freshness check — <span class="mono">{stale["n_newly_stale"]}/'
+                    f'{stale["n_features"]}</span> flagged features are stale this month',
+                    "These features collapsed to missing/zero in the latest month versus "
+                    "training (common with thin free fundamentals), so their KS drift is "
+                    "likely un-refreshed data, not the market moving. " + tail,
+                )
+            elif stale["n_features"] > 0:
+                banner(
+                    "success",
+                    "Data-freshness check — flagged features are well-populated this month",
+                    "The flagged features are no sparser than in training, so this drift "
+                    "looks like a genuine distribution shift rather than a data artifact.",
+                )
 
         if len(months) > 3 and available_features:
             train_data = drift_train_data

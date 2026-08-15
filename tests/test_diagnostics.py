@@ -9,6 +9,7 @@ from core.diagnostics import (
     ks_test,
     feature_drift,
     recent_training_window,
+    latest_month_staleness,
     alpha_decay,
     signal_staleness,
     bootstrap_sharpe_ci,
@@ -275,3 +276,24 @@ def test_pbo_low_when_one_config_dominates():
     base[:, 0] += 0.05                          # config 0 has a persistent edge
     pbo = probability_of_backtest_overfitting(pd.DataFrame(base), n_splits=8)
     assert pbo < 0.3                            # backtest winner rarely disappoints
+
+
+def test_latest_month_staleness_flags_newly_sparse():
+    rng = np.random.RandomState(0)
+    rows = []
+    base_months = ["2020-01", "2020-02", "2020-03"]
+    for m in base_months:                      # baseline: fresh & stale populated
+        for i in range(50):
+            rows.append({"ym": m, "fresh": rng.randn(), "stale": rng.randn(),
+                         "always_sparse": 0.0 if i < 30 else rng.randn()})
+    for i in range(50):                        # latest month: 'stale' collapses to 0
+        rows.append({"ym": "2020-04", "fresh": rng.randn(),
+                     "stale": 0.0 if i < 40 else rng.randn(),
+                     "always_sparse": 0.0 if i < 30 else rng.randn()})
+    df = pd.DataFrame(rows)
+    res = latest_month_staleness(df, base_months, "2020-04",
+                                 ["fresh", "stale", "always_sparse"])
+    assert "stale" in res["newly_stale"]          # collapsed this month
+    assert "fresh" not in res["newly_stale"]       # still populated
+    assert "always_sparse" not in res["newly_stale"]  # sparse in both -> not new
+    assert res["n_features"] == 3
