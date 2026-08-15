@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+from pipeline.config import REPORTING_LAG_MONTHS
+
 
 def compute_fundamental_features(
     fundamentals: dict[str, dict],
@@ -23,7 +25,11 @@ def compute_fundamental_features(
         prev_sue = np.nan
 
         for i in range(n_q):
-            ym = quarters[i].strftime("%Y-%m")
+            # Reporting lag: a quarter's fundamentals are only public once the
+            # filing lands, so make them available quarter-end + the lag, not on
+            # the quarter-end month (which would be look-ahead).
+            available = quarters[i] + pd.DateOffset(months=REPORTING_LAG_MONTHS)
+            ym = available.strftime("%Y-%m")
             row = {"ticker": ticker, "ym": ym}
 
             total_assets = _safe_get(bal, "TotalAssets", i)

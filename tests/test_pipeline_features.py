@@ -184,3 +184,28 @@ def test_macro_features_shape():
     assert len(result) == 3
     assert "macro_unc_1m" in result.columns
     assert "fin_unc_1m" in result.columns
+
+
+def test_fundamentals_apply_reporting_lag():
+    """Quarterly features are stamped to (quarter-end + reporting lag), not the
+    quarter-end month itself — otherwise the backtest sees filings early."""
+    from pipeline.config import REPORTING_LAG_MONTHS
+    quarters = pd.DatetimeIndex(["2020-03-31", "2020-06-30"])
+    fundamentals = {
+        "AAA": {
+            "quarters": quarters,
+            "income": {"TotalRevenue": [100.0, 110.0], "NetIncome": [10.0, 11.0],
+                       "GrossProfit": [40.0, 44.0], "OperatingIncome": [20.0, 22.0],
+                       "DilutedEPS": [1.0, 1.1]},
+            "balance": {"TotalAssets": [500.0, 510.0],
+                        "TotalEquityGrossMinorityInterest": [200.0, 210.0]},
+            "cashflow": {"OperatingCashFlow": [15.0, 16.0]},
+            "market_cap": 1000.0,
+        }
+    }
+    out = compute_fundamental_features(fundamentals)
+    yms = set(out["ym"])
+    expected = (pd.Timestamp("2020-03-31")
+                + pd.DateOffset(months=REPORTING_LAG_MONTHS)).strftime("%Y-%m")
+    assert expected in yms                 # available after the filing lag
+    assert "2020-03" not in yms            # never on the quarter-end month

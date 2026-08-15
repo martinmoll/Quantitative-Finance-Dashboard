@@ -49,6 +49,11 @@ FUNDAMENTALS_DELAY = 0.5
 FUNDAMENTALS_RETRIES = 3
 MIN_SUCCESS_RATE = 0.5
 
+# Fundamentals only become public when the filing is released — a 10-Q lands
+# ~40-90 days after the fiscal quarter-end. Stamp each quarter's features to
+# (quarter-end + this many months) so the backtest can't use them early.
+REPORTING_LAG_MONTHS = 2
+
 FRED_SERIES = {
     "VIXCLS": "vix",
     "T10Y2Y": "yield_curve_slope",
