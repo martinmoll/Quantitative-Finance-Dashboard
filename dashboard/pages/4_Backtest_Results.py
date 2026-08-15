@@ -7,6 +7,8 @@ import numpy as np
 from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
     compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci, multiple_testing_hurdle,
+    probabilistic_sharpe_ratio, deflated_sharpe_ratio,
+    probability_of_backtest_overfitting,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -206,6 +208,32 @@ with tab_overview:
             detail += (" Note: the 95% bootstrap CI includes zero, meaning the positive "
                        "Sharpe is not statistically distinguishable from chance at this sample size.")
         banner(interp["level"], headline, detail)
+
+    # Probabilistic / Deflated Sharpe — is the Sharpe real given noise & #trials?
+    psr = probabilistic_sharpe_ratio(rets)
+    psr_cards = [{
+        "label": "Prob. Sharpe > 0",
+        "value": f"{psr:.0%}" if not np.isnan(psr) else "N/A",
+        "accent": C["positive"] if (not np.isnan(psr) and psr > 0.95) else C["warning"],
+        "variant": "bar", "delta": "P(true Sharpe > 0)", "delta_color": C["text_secondary"],
+    }]
+    if pinned:
+        trial_srs = []
+        for cfg in [current_config] + list(pinned):
+            cr = cfg["result"]["monthly_returns"]
+            cr = cr[cr.index >= display_start].dropna()
+            if cr.std() > 0:
+                trial_srs.append(cr.mean() / cr.std())
+        dsr_res = deflated_sharpe_ratio(rets, trial_srs)
+        dsr = dsr_res["dsr"]
+        psr_cards.append({
+            "label": "Deflated Sharpe",
+            "value": f"{dsr:.0%}" if not np.isnan(dsr) else "N/A",
+            "accent": C["positive"] if (not np.isnan(dsr) and dsr > 0.95) else C["warning"],
+            "variant": "bar", "delta": f"deflated for {dsr_res['n_trials']} trials",
+            "delta_color": C["text_secondary"],
+        })
+    metric_card_row(psr_cards)
 
     if alpha_res is not None:
         # Multiple-testing nudge: comparing pinned configs inflates false positives.
@@ -450,6 +478,33 @@ with tab_compare:
             configs.append(p_perf)
 
         comparison_table(configs)
+
+        # --- Probability of Backtest Overfitting (CSCV) ---
+        ret_cols = {}
+        _cur = st.session_state.get("backtest_result")["monthly_returns"]
+        ret_cols["Current Run"] = _cur[_cur.index >= display_start]
+        for p in pinned:
+            pr = p["result"]["monthly_returns"]
+            ret_cols[p["label"]] = pr[pr.index >= display_start]
+        pbo = probability_of_backtest_overfitting(pd.DataFrame(ret_cols))
+
+        st.markdown("---")
+        st.subheader("Probability of Backtest Overfitting")
+        if not np.isnan(pbo):
+            metric_card_row([{
+                "label": "PBO", "value": f"{pbo:.0%}",
+                "accent": C["negative"] if pbo > 0.5 else C["positive"], "variant": "bar",
+                "delta": "P(backtest winner disappoints out-of-sample)",
+                "delta_color": C["text_secondary"],
+            }])
+            banner("warning" if pbo > 0.5 else "success",
+                   f'PBO = <span class="mono">{pbo:.0%}</span>',
+                   "Across combinatorial in-sample / out-of-sample splits, how often the "
+                   "in-sample-best config landed below the out-of-sample median. Above 50% "
+                   "means picking the backtest winner is likely overfitting. Most reliable "
+                   "with several configs and a long history.")
+        else:
+            st.caption("Need at least 2 configs and enough history to estimate PBO.")
     else:
         st.info("Pin configurations from the Alpha Model Lab to compare them here.")
 

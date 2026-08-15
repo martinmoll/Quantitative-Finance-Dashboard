@@ -15,6 +15,9 @@ from core.diagnostics import (
     bootstrap_alpha_ci,
     multiple_testing_hurdle,
     compute_r2_oos,
+    probabilistic_sharpe_ratio,
+    deflated_sharpe_ratio,
+    probability_of_backtest_overfitting,
 )
 
 
@@ -221,3 +224,54 @@ def test_multiple_testing_hurdle_rises_with_trials():
 def test_multiple_testing_hurdle_floors_at_one_trial():
     # Zero/negative trial counts are treated as a single test, not a crash.
     assert multiple_testing_hurdle(0) == multiple_testing_hurdle(1)
+
+
+def test_psr_high_for_strong_track_record():
+    rng = np.random.RandomState(0)
+    r = pd.Series(rng.randn(120) * 0.03 + 0.02)   # positive monthly Sharpe, long
+    assert probabilistic_sharpe_ratio(r) > 0.95
+
+
+def test_psr_about_half_for_zero_mean():
+    rng = np.random.RandomState(1)
+    r = pd.Series(rng.randn(120) * 0.03)          # zero mean -> ~50/50
+    assert 0.3 < probabilistic_sharpe_ratio(r) < 0.7
+
+
+def test_psr_decreases_with_higher_benchmark():
+    rng = np.random.RandomState(2)
+    r = pd.Series(rng.randn(120) * 0.03 + 0.015)
+    assert probabilistic_sharpe_ratio(r, 0.0) > probabilistic_sharpe_ratio(r, 0.3)
+
+
+def test_dsr_below_psr_and_stricter_with_more_trials():
+    rng = np.random.RandomState(3)
+    r = pd.Series(rng.randn(120) * 0.03 + 0.02)
+    psr0 = probabilistic_sharpe_ratio(r, 0.0)
+    few = deflated_sharpe_ratio(r, [0.2, 0.1, 0.15])
+    many = deflated_sharpe_ratio(r, [0.2, 0.1, 0.15, 0.3, -0.1, 0.05, 0.25, 0.0])
+    assert few["dsr"] <= psr0 + 1e-9          # deflation only lowers it
+    assert many["sr0"] > few["sr0"]           # more trials -> higher hurdle
+    assert many["dsr"] <= few["dsr"] + 1e-9
+
+
+def test_dsr_needs_two_trials():
+    r = pd.Series(np.random.RandomState(4).randn(60) * 0.03 + 0.01)
+    assert np.isnan(deflated_sharpe_ratio(r, [0.2])["dsr"])
+
+
+def test_pbo_range_and_guards():
+    rng = np.random.RandomState(5)
+    M = pd.DataFrame(rng.randn(80, 4) * 0.03)
+    pbo = probability_of_backtest_overfitting(M, n_splits=8)
+    assert 0.0 <= pbo <= 1.0
+    assert np.isnan(probability_of_backtest_overfitting(M.iloc[:, :1]))  # <2 configs
+    assert np.isnan(probability_of_backtest_overfitting(M, n_splits=7))  # odd splits
+
+
+def test_pbo_low_when_one_config_dominates():
+    rng = np.random.RandomState(6)
+    base = rng.randn(96, 4) * 0.03
+    base[:, 0] += 0.05                          # config 0 has a persistent edge
+    pbo = probability_of_backtest_overfitting(pd.DataFrame(base), n_splits=8)
+    assert pbo < 0.3                            # backtest winner rarely disappoints

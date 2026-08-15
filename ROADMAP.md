@@ -44,11 +44,11 @@ data the free sources can't fully provide.
 
 ## Tier 3 — Overfitting control & validation
 
-- [ ] **Deflated Sharpe Ratio + Probability of Backtest Overfitting (PBO).**
+- [x] **Deflated Sharpe Ratio + Probability of Backtest Overfitting (PBO).**
   Bailey & López de Prado. DSR shrinks the Sharpe for the number of trials,
-  trial variance, and non-normality; PBO estimates the probability the selected
-  config is overfit. Already *documented* in the theory text but not computed —
-  the natural completion of the bootstrap-CI and multiple-testing work.
+  trial variance, and non-normality; PBO (via CSCV) estimates the probability
+  the selected config is overfit. *Probabilistic + Deflated Sharpe on the
+  Backtest Overview; PBO on the Compare tab.*
 - [ ] **Purged & embargoed cross-validation (CPCV).** Best-practice financial-ML
   tuning; the auto-tune currently uses plain time-series CV.
 - [ ] **Signal orthogonalization / alpha combination.** Residualize signals vs

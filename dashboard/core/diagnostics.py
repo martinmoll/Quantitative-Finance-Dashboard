@@ -3,7 +3,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr, ks_2samp, norm
+from scipy.stats import spearmanr, ks_2samp, norm, skew, kurtosis
 
 
 def compute_performance_metrics(returns: pd.Series) -> dict:
@@ -333,6 +333,104 @@ def multiple_testing_hurdle(n_trials: int, alpha: float = 0.05) -> float:
     n = max(int(n_trials), 1)
     per_test = alpha / n
     return float(norm.ppf(1 - per_test / 2))
+
+
+_EULER = 0.5772156649015329
+
+
+def probabilistic_sharpe_ratio(returns: pd.Series, sr_benchmark: float = 0.0) -> float:
+    """Probability the true Sharpe exceeds ``sr_benchmark`` (Bailey & López de
+    Prado), adjusting for sample size and non-normal returns.
+
+    All Sharpes are per-period (e.g. monthly) — the inputs are not annualized.
+    """
+    r = returns.dropna().values
+    n = len(r)
+    if n < 3:
+        return float("nan")
+    sd = r.std(ddof=1)
+    if sd == 0:
+        return float("nan")
+    sr = r.mean() / sd
+    g3 = float(skew(r))
+    g4 = float(kurtosis(r, fisher=False))  # raw kurtosis (normal = 3)
+    denom = np.sqrt(1 - g3 * sr + ((g4 - 1) / 4) * sr ** 2)
+    if not np.isfinite(denom) or denom <= 0:
+        return float("nan")
+    z = (sr - sr_benchmark) * np.sqrt(n - 1) / denom
+    return float(norm.cdf(z))
+
+
+def deflated_sharpe_ratio(returns: pd.Series, trial_sharpes) -> dict:
+    """Deflated Sharpe Ratio (Bailey & López de Prado 2014).
+
+    The probabilistic Sharpe benchmarked not against zero but against the Sharpe
+    you'd expect from the *best of N trials with no skill* — so trying many
+    configurations raises the bar. ``trial_sharpes`` are the per-period Sharpes
+    of every configuration tried (including this one); N = count, V = variance.
+    """
+    ts = np.asarray([s for s in trial_sharpes if np.isfinite(s)], dtype=float)
+    N = len(ts)
+    if N < 2:
+        return {"dsr": float("nan"), "sr0": float("nan"), "n_trials": N}
+    V = ts.var(ddof=1)
+    if V <= 0:
+        return {"dsr": float("nan"), "sr0": float("nan"), "n_trials": N}
+    sr0 = np.sqrt(V) * (
+        (1 - _EULER) * norm.ppf(1 - 1.0 / N)
+        + _EULER * norm.ppf(1 - 1.0 / (N * np.e))
+    )
+    return {
+        "dsr": probabilistic_sharpe_ratio(returns, sr_benchmark=float(sr0)),
+        "sr0": float(sr0),
+        "n_trials": N,
+    }
+
+
+def _col_sharpe(a: np.ndarray) -> np.ndarray:
+    mu = a.mean(axis=0)
+    sd = a.std(axis=0, ddof=1)
+    return np.divide(mu, sd, out=np.zeros_like(mu, dtype=float), where=sd > 0)
+
+
+def probability_of_backtest_overfitting(
+    returns_matrix: pd.DataFrame, n_splits: int = 8
+) -> float:
+    """Probability of Backtest Overfitting via CSCV (Bailey et al. 2017).
+
+    ``returns_matrix`` is months × configs. Time is split into ``n_splits``
+    blocks; over every symmetric in-sample / out-of-sample partition, we check
+    how often the in-sample-best config lands *below* the out-of-sample median —
+    i.e. how often picking the backtest winner would disappoint live. Returns a
+    probability in [0, 1] (>0.5 signals selection is likely overfitting), or NaN
+    if there aren't enough configs / history.
+    """
+    import itertools
+
+    M = returns_matrix.dropna(how="any")
+    T, N = M.shape
+    if N < 2 or n_splits % 2 != 0 or T < n_splits * 2:
+        return float("nan")
+
+    arr = M.values
+    block = T // n_splits
+    blocks = [arr[i * block:(i + 1) * block] for i in range(n_splits)]
+    half = n_splits // 2
+
+    overfit = 0
+    total = 0
+    for is_idx in itertools.combinations(range(n_splits), half):
+        oos_idx = [i for i in range(n_splits) if i not in is_idx]
+        is_sr = _col_sharpe(np.vstack([blocks[i] for i in is_idx]))
+        oos_sr = _col_sharpe(np.vstack([blocks[i] for i in oos_idx]))
+        best = int(np.nanargmax(is_sr))
+        rank = int(np.sum(oos_sr <= oos_sr[best]))  # 1..N (N = OOS-best)
+        omega = rank / (N + 1)
+        if np.log(omega / (1 - omega)) < 0:  # in-sample winner below OOS median
+            overfit += 1
+        total += 1
+
+    return overfit / total if total else float("nan")
 
 
 def signal_staleness(
