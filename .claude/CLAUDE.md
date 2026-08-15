@@ -42,6 +42,7 @@ Follow this sequence for every task. Do not skip steps.
 - Say what you did and why, not just code.
 - Flag concerns even when you did exactly what was asked.
 - Be precise about uncertainty. "I am not sure this library supports streaming" — good. "I think this should work" — unacceptable.
+- Use a standard of ASD-STE100, Simplified Technical English when explaining and guiding me, as well as documenting the code.
 
 ## Self-check: catch these failure modes
 
