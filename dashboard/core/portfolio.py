@@ -26,6 +26,80 @@ def _apply_ivol_cap(df: pd.DataFrame, max_ivol_xs: float | None) -> pd.DataFrame
     return df[~(df["ivol_xs"] > max_ivol_xs)]
 
 
+# Sector labels that mean "we do not know". They must not share one budget: the
+# panel writes the literal string "Unknown" rather than NaN, so a plain NaN
+# check alone would be dead code here.
+_UNKNOWN_SECTORS = frozenset({"", "unknown", "n/a", "na", "none", "nan"})
+
+
+def _apply_vol_tilt(df: pd.DataFrame, vol_tilt: float) -> pd.DataFrame:
+    """Penalize ``pred`` by cross-sectional volatility before ranking.
+
+    Selection ranks on the *tilted* score, so anything that needs to know which
+    names the book will hold must go through here first. Returns a copy.
+    """
+    out = df.copy()
+    if vol_tilt > 0.0 and "vol_12m_xs" in out.columns:
+        out["pred"] = out["pred"] - vol_tilt * out["vol_12m_xs"].fillna(0.0)
+    return out
+
+
+def _select(
+    df: pd.DataFrame,
+    K: int,
+    max_per_sector: int | None = None,
+    largest: bool = True,
+) -> pd.DataFrame:
+    """The names one leg of the book holds, ranked by ``pred``.
+
+    The single source of truth for selection. All five weighting methods run on
+    what this returns, so a change here changes every method at once.
+
+    With no cap this is exactly ``nlargest``/``nsmallest``. The early return is
+    deliberate: ``sort_values(ascending=False)`` does not reproduce nlargest's
+    tie-breaking — on ties it returns a different *set*, not merely a different
+    order. Books are pickled under a config key, so a drifting tie-break would
+    make a cached book disagree with a freshly computed one under that key.
+
+    With a cap, candidates are walked best-first and a name is skipped once its
+    sector budget is spent, so the book still reaches K by backfilling from
+    deeper in the ranking. Names with an unknown sector are never blocked: each
+    gets a private bucket. Collapsing them into one shared bucket would drop
+    names because their label is missing, which is the selection-on-missing-data
+    effect ``_apply_ivol_cap`` refuses to introduce.
+
+    If the universe has too few sectors to fill K under the cap, the cap wins
+    and the book is shorter than K. Every weighting method normalizes by the
+    number selected, so a short book is still weighted correctly — just more
+    concentrated per name, which is what "not enough breadth" should look like
+    rather than a silently breached cap.
+    """
+    if max_per_sector is None or "sector" not in df.columns:
+        return df.nlargest(K, "pred") if largest else df.nsmallest(K, "pred")
+
+    # Reproduces nlargest/nsmallest ordering exactly: a stable sort leaves ties
+    # in original row order and puts NaN predictions last, as pandas does.
+    pred = df["pred"].to_numpy(dtype=float)
+    order = np.argsort(-pred if largest else pred, kind="mergesort")
+    sectors = df["sector"].to_numpy(object)
+
+    counts: dict[object, int] = {}
+    picked: list[int] = []
+    for pos in order:
+        if len(picked) >= K:
+            break
+        sec = sectors[pos]
+        if pd.isna(sec) or str(sec).strip().lower() in _UNKNOWN_SECTORS:
+            picked.append(pos)          # unknown sector: own bucket, never full
+            continue
+        if counts.get(sec, 0) >= max_per_sector:
+            continue
+        counts[sec] = counts.get(sec, 0) + 1
+        picked.append(pos)
+
+    return df.iloc[picked]
+
+
 def construct_portfolio(
     predictions: pd.DataFrame,
     method: str,
@@ -35,17 +109,19 @@ def construct_portfolio(
     vol_tilt: float,
     returns_history: pd.DataFrame | None = None,
     max_ivol_xs: float | None = None,
+    max_per_sector: int | None = None,
     **method_params,
 ) -> pd.DataFrame:
-    df = _apply_ivol_cap(predictions, max_ivol_xs).copy()
+    df = _apply_vol_tilt(_apply_ivol_cap(predictions, max_ivol_xs), vol_tilt)
 
-    if vol_tilt > 0.0 and "vol_12m_xs" in df.columns:
-        df["pred"] = df["pred"] - vol_tilt * df["vol_12m_xs"].fillna(0.0)
-
-    top = df.nlargest(K, "pred").copy()
+    top = _select(df, K, max_per_sector, largest=True).copy()
 
     if strategy_type == "long_short":
-        bottom = df.nsmallest(K_short, "pred").copy()
+        # The legs get independent sector budgets. A shared budget would let
+        # long Tech crowd out short Tech, but long and short the same sector is
+        # a hedge, not a concentration — and it would make the answer depend on
+        # which leg happens to be counted first.
+        bottom = _select(df, K_short, max_per_sector, largest=False).copy()
         long_weights = _compute_weights(top, method, returns_history, **method_params)
         short_weights = _compute_weights(bottom, method, returns_history, **method_params)
         top["weight"] = long_weights
@@ -220,6 +296,8 @@ def build_portfolio_series(
     returns_history: pd.DataFrame | None = None,
     cost_bps: float = 10.0,
     max_ivol_xs: float | None = None,
+    max_per_sector: int | None = None,
+    cov_window: int | None = 60,
     **method_params,
 ) -> dict:
     """Build the monthly return series for a strategy.
@@ -227,6 +305,24 @@ def build_portfolio_series(
     ``monthly_returns`` is **net of transaction costs** at ``cost_bps`` one-way.
     The gross series is returned alongside it as ``monthly_returns_gross`` so
     the two can be compared. Pass ``cost_bps=0.0`` for a frictionless run.
+
+    ``cov_window`` bounds the covariance estimation window in months for the
+    ERC and MVO methods; ``None`` restores the old expanding behaviour, which
+    by 2026 was estimating on more than ten years of monthly data. The other
+    three methods never look at the covariance.
+
+    This bound is an estimator correctness fix, **not** drawdown protection. A
+    shorter window was tested as an early warning and rejected: it moves the
+    2026-06 book, which went on to lose 30.8%, only from the 10th to the
+    26th-33rd percentile of ex-ante risk — still below median — and every
+    estimator tried correlates *negatively* with next-month absolute return.
+    Portfolio covariance on a ten-name book does not forecast this. Use
+    ``diagnostics.effective_bets`` for that.
+
+    ``regime_lookback`` gates on trailing SPY, so it cannot help either when a
+    single theme unwinds inside a flat index: it was on throughout June and
+    July 2026 because the market was up. An index-level filter cannot protect a
+    book whose risk is not index risk.
     """
     regime_on = None
     if market_monthly is not None and regime_lookback > 0:
@@ -244,6 +340,9 @@ def build_portfolio_series(
     for m in months:
         # Cap first, so the breadth check below sees the tradable universe.
         df_m = _apply_ivol_cap(predictions[m], max_ivol_xs)
+        # Row-count floor only. The sector cap does not shrink the universe, so
+        # it does not belong here; its feasibility question (n_sectors * cap >= K)
+        # is answered in _select by letting the book come up short.
         min_required = K + K_short if strategy_type == "long_short" else 2 * K
         if len(df_m) < min_required:
             prev_weights = None
@@ -257,7 +356,15 @@ def build_portfolio_series(
 
         mvo_prev = None
         if method == "mvo" and prev_weights is not None:
-            top_permnos = df_m.nlargest(K, "pred")["permno"].values
+            # _mvo_weights lines this vector up *positionally* against the
+            # selected frame, so it has to be the same names in the same order.
+            # Going through _apply_vol_tilt/_select is what guarantees that.
+            # Ranking on the untilted pred here — as this did — already picks a
+            # different book for any vol_tilt > 0, so the turnover penalty was
+            # priced against names the book does not hold.
+            top_permnos = _select(
+                _apply_vol_tilt(df_m, vol_tilt), K, max_per_sector, largest=True,
+            )["permno"].values
             mvo_prev = np.array([prev_weights.get(p, 0.0) for p in top_permnos])
             pw_sum = mvo_prev.sum()
             if pw_sum > 0:
@@ -271,11 +378,17 @@ def build_portfolio_series(
         hist_m = None
         if returns_history is not None:
             hist_m = returns_history.loc[returns_history.index <= m]
+            if cov_window:
+                hist_m = hist_m.tail(int(cov_window))
 
         held = construct_portfolio(
             df_m, method=method, K=K, strategy_type=strategy_type,
             K_short=K_short, vol_tilt=vol_tilt,
             returns_history=hist_m,
+            # max_ivol_xs is deliberately NOT forwarded: it is a universe filter
+            # and df_m is already capped above. max_per_sector is a selection
+            # rule rather than a filter, so it has to be forwarded here.
+            max_per_sector=max_per_sector,
             prev_weights=mvo_prev, **method_params,
         )
 

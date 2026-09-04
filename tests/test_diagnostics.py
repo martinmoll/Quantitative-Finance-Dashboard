@@ -349,3 +349,134 @@ def test_return_by_vol_decile_needs_data():
     from core.diagnostics import return_by_vol_decile
     assert return_by_vol_decile(pd.DataFrame({"ym": [], "permno": [],
                                               "vol_12m_xs": [], "y_raw": []})).empty
+
+
+# --- effective number of bets ---------------------------------------------
+# Position count is not diversification. These fixtures have analytic answers,
+# so the tests need no seeds and no tolerance handwaving.
+
+def _orthogonal_history(n_assets=4, scale=0.05):
+    """A returns panel whose *sample* covariance is exactly diagonal.
+
+    Hadamard columns 1.. are mutually orthogonal and have exactly zero mean, so
+    the sample covariance is (T/(T-1)) * scale^2 * I to floating-point
+    exactness. Random data would only be diagonal in expectation.
+    """
+    from scipy.linalg import hadamard
+    months = ([f"2015-{m:02d}" for m in range(1, 13)]
+              + [f"2016-{m:02d}" for m in range(1, 5)])          # T = 16
+    permnos = list(range(10001, 10001 + n_assets))
+    hist = pd.DataFrame(hadamard(len(months))[:, 1:1 + n_assets] * scale,
+                        index=months, columns=permnos)
+    return hist, months, permnos
+
+
+def _equal_weight_book(permnos, months):
+    w = np.ones(len(permnos)) / len(permnos)
+    return {m: pd.DataFrame({"permno": permnos, "weight": w}) for m in months}
+
+
+def test_effective_bets_counts_uncorrelated_names():
+    """n identical, uncorrelated, equally weighted names is exactly n bets."""
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    enb = effective_bets(_equal_weight_book(permnos, months[-2:]), hist)
+    assert len(enb) == 2
+    np.testing.assert_allclose(enb.values, 4.0, atol=1e-10)
+
+
+def test_effective_bets_collapses_when_everything_moves_together():
+    """n perfectly correlated names is one bet however many you hold.
+
+    The covariance is singular here and the metric must still return a number,
+    because it never inverts it.
+    """
+    from core.diagnostics import effective_bets
+    rng = np.random.default_rng(5)
+    months = ([f"2015-{m:02d}" for m in range(1, 13)]
+              + [f"2016-{m:02d}" for m in range(1, 5)])
+    permnos = list(range(10001, 10005))
+    col = rng.normal(0, 0.04, len(months))
+    hist = pd.DataFrame(np.column_stack([col] * 4), index=months, columns=permnos)
+    enb = effective_bets(_equal_weight_book(permnos, months[-2:]), hist)
+    np.testing.assert_allclose(enb.values, 1.0, atol=1e-8)
+
+
+def test_effective_bets_sees_through_the_position_count():
+    """Four names in two identical pairs is two bets. len(holdings) says four."""
+    from core.diagnostics import effective_bets
+    hist, months, _ = _orthogonal_history(2)
+    a, b = hist.columns
+    paired = pd.DataFrame({10001: hist[a], 10002: hist[a],
+                           10003: hist[b], 10004: hist[b]}, index=months)
+    book = _equal_weight_book([10001, 10002, 10003, 10004], months[-1:])
+    assert len(book[months[-1]]) == 4
+    np.testing.assert_allclose(effective_bets(book, paired).values, 2.0, atol=1e-8)
+
+
+def test_effective_bets_is_point_in_time():
+    """Returns realized after month m must not move the reading at m."""
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    rng = np.random.default_rng(2)
+    future = pd.DataFrame(rng.normal(0, 0.5, (6, 4)),
+                          index=[f"2016-{m:02d}" for m in range(5, 11)],
+                          columns=permnos)
+    book = _equal_weight_book(permnos, months[-1:])
+    pd.testing.assert_series_equal(
+        effective_bets(book, hist),
+        effective_bets(book, pd.concat([hist, future])),
+    )
+
+
+def test_effective_bets_is_scale_free_for_a_long_short_book():
+    """Long-short weights sum to about zero, so gross normalization is required.
+
+    Without it the metric is meaningless off a long-only book: only the
+    denominator moves with the weight scale.
+    """
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    m = months[-1]
+    ls = {m: pd.DataFrame({"permno": permnos, "weight": [0.5, 0.5, -0.5, -0.5]})}
+    doubled = {m: pd.DataFrame({"permno": permnos, "weight": [1.0, 1.0, -1.0, -1.0]})}
+    np.testing.assert_allclose(effective_bets(ls, hist).values,
+                               effective_bets(doubled, hist).values, atol=1e-10)
+    np.testing.assert_allclose(effective_bets(ls, hist).values, 4.0, atol=1e-10)
+
+
+def test_effective_bets_degenerates_quietly():
+    """Never raise, and never invent an answer out of missing data."""
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    book = _equal_weight_book(permnos, months[-1:])
+
+    # No history at all. An identity-covariance fallback would read N_eff = n
+    # here — the most reassuring answer possible, from nothing.
+    assert effective_bets(book, None).empty
+    assert effective_bets(book, pd.DataFrame()).empty
+    assert effective_bets({}, hist).empty
+
+    too_few = _equal_weight_book(permnos[:2], months[-1:])
+    assert len(effective_bets(too_few, hist)) == 1
+    assert effective_bets(too_few, hist).isna().all()
+
+    assert effective_bets(book, hist.iloc[:6]).isna().all()          # < min_obs
+
+    no_weight = {months[-1]: pd.DataFrame({"permno": permnos})}
+    assert effective_bets(no_weight, hist).isna().all()
+
+
+def test_effective_bets_weighting_variants_agree_under_equal_weights():
+    """The unweighted mean and the diversification ratio coincide at 1/N and
+    diverge otherwise, so the flag has to be an explicit choice."""
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    hist = hist * np.array([1.0, 1.0, 4.0, 4.0])       # unequal vols
+    eq = _equal_weight_book(permnos, months[-1:])
+    np.testing.assert_allclose(effective_bets(eq, hist).values,
+                               effective_bets(eq, hist, weighted=True).values, atol=1e-10)
+    tilted = {months[-1]: pd.DataFrame(
+        {"permno": permnos, "weight": [0.7, 0.1, 0.1, 0.1]})}
+    assert not np.isclose(effective_bets(tilted, hist).iloc[0],
+                          effective_bets(tilted, hist, weighted=True).iloc[0])

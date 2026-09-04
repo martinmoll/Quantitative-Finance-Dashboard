@@ -570,3 +570,97 @@ def return_by_vol_decile(
         out["share_of_book"] = counts.reindex(out.index).fillna(0.0)
 
     return out
+
+
+def effective_bets(
+    holdings: dict[str, pd.DataFrame],
+    returns_history: pd.DataFrame | None,
+    window: int | None = 60,
+    min_names: int = 3,
+    min_obs: int = 12,
+    weighted: bool = False,
+) -> pd.Series:
+    """Effective number of independent bets in the book, month by month.
+
+        N_eff = (mean asset vol / portfolio vol)^2
+
+    ``n`` identical uncorrelated names reads ``n``; ``n`` names that move as one
+    reads 1. It measures what the position count cannot: thirty names loading on
+    one factor is one bet, and the position count reports thirty.
+
+    This is the metric that flagged July 2026 in advance. The book decided at
+    2026-06 read 2.03 effective bets — the 3rd percentile of its own history —
+    and went on to lose 30.8% gross while the market rose 1.4%.
+
+    Read it as a **verification** instrument, not a forecast. Once a sector cap
+    is applied the same book reads 3.20 and the correlation with next-month
+    return collapses from +0.38 to +0.04, because the constraint has already
+    removed the exposure this was detecting. A low reading under an active cap
+    means the book has found a way to concentrate that the cap does not catch.
+
+    Estimated on the point-in-time covariance — only returns realized up to and
+    including month ``m`` — so the reading is available *at* the decision.
+    ``window`` bounds the estimation history in months; ``None`` is expanding.
+
+    ``weighted=True`` swaps the unweighted mean asset vol for the weight-average
+    (the Choueifaty diversification ratio, squared). The two agree exactly under
+    equal weights and diverge for ``inverse_vol``, ``erc`` and ``mvo``. The
+    unweighted form is the default because it is the one that was measured
+    against realized outcomes.
+
+    Weights are normalized to gross exposure first. The unweighted form is not
+    scale-free — only the denominator moves with the weight scale — so it is
+    well defined for a long-only book solely because those weights sum to 1.
+    Normalizing is an exact no-op there, and is what makes a long-short book,
+    whose weights sum to about zero, comparable at all.
+
+    NaN for a month whose book has fewer than ``min_names`` names with history,
+    fewer than ``min_obs`` overlapping observations, or a non-positive portfolio
+    variance. Empty Series when there is no history at all. Note this
+    deliberately does **not** reuse ``portfolio._get_cov_matrix``: its identity
+    fallback would make N_eff equal the position count exactly, which is the
+    most reassuring answer available and would be manufactured from no data.
+    """
+    if returns_history is None or len(returns_history) == 0 or not holdings:
+        return pd.Series(dtype=float)
+
+    out: dict[str, float] = {}
+    for m in sorted(holdings):
+        held = holdings[m]
+        if held is None or not {"permno", "weight"} <= set(held.columns):
+            out[m] = np.nan
+            continue
+
+        # Summed per permno so a name held on both legs nets out.
+        w_all = held[["permno", "weight"]].dropna().groupby("permno")["weight"].sum()
+        names = [p for p in w_all.index if p in returns_history.columns]
+        if len(names) < min_names:
+            out[m] = np.nan
+            continue
+
+        hist = returns_history.loc[returns_history.index <= m, names]
+        if window:
+            hist = hist.tail(int(window))
+        hist = hist.dropna()          # listwise, as _get_cov_matrix does
+        if len(hist) < min_obs:
+            out[m] = np.nan
+            continue
+
+        w = w_all.loc[names].to_numpy(dtype=float)
+        gross = np.abs(w).sum()
+        if gross <= 0:
+            out[m] = np.nan
+            continue
+        w = w / gross
+
+        cov = hist.cov().to_numpy(dtype=float)
+        port_var = float(w @ cov @ w)
+        asset_vol = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+        mean_vol = float(np.abs(w) @ asset_vol) if weighted else float(asset_vol.mean())
+
+        if not np.isfinite(port_var) or port_var <= 0 or mean_vol <= 0:
+            out[m] = np.nan
+            continue
+        out[m] = (mean_vol / np.sqrt(port_var)) ** 2
+
+    return pd.Series(out).sort_index()
