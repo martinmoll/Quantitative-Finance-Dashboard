@@ -9,7 +9,7 @@ from core.diagnostics import (
     compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci, multiple_testing_hurdle,
     probabilistic_sharpe_ratio, deflated_sharpe_ratio,
     probability_of_backtest_overfitting, survivorship_premium,
-    return_by_vol_decile,
+    return_by_vol_decile, effective_bets,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -156,6 +156,48 @@ if _panel is not None:
                 )
                 _spread = (_dec["ann_return"].iloc[-1] - _dec["ann_return"].iloc[0]) * 100
                 st.caption(f"Top decile minus bottom: **{_spread:.1f}** pct pts/yr.")
+
+# --- Concentration: effective number of bets ------------------------------
+# The position count cannot see this. In July 2026 the book held nine of ten
+# names in the semiconductor supply chain and lost 30.8% gross while the market
+# rose 1.4%. It read 1.73 effective bets at the decision point, the 2nd
+# percentile of its own history — a warning that was available in advance.
+_enb = effective_bets(
+    (result or {}).get("holdings", {}), st.session_state.get("returns_history"),
+)
+_enb = _enb.dropna() if len(_enb) else _enb
+if len(_enb) >= 12:
+    _floor = _enb.quantile(0.10)
+    _latest, _latest_m = _enb.iloc[-1], _enb.index[-1]
+    if _latest <= _floor:
+        banner(
+            "warning",
+            f"<b>Concentration: {_latest:.1f} effective bets</b> in "
+            f"<span class='mono'>{_latest_m}</span>, the bottom decile of this "
+            f"backtest (median <span class='mono'>{_enb.median():.1f}</span>). "
+            f"The book holds more positions than it holds bets.",
+            detail=(
+                "Effective bets is `(mean asset vol / portfolio vol)²` on the "
+                "held book, from the point-in-time covariance. Ten names that "
+                "move as one is one bet; the position count still says ten.\n\n"
+                "Read it as verification, not forecast. With a sector cap "
+                "active this metric stops predicting returns (correlation with "
+                "the next month falls from +0.20 to +0.04) because the "
+                "constraint has already removed the exposure it detects. A low "
+                "reading *while a cap is on* means the book has found a way to "
+                "concentrate that the cap does not catch."
+            ),
+        )
+    with st.expander("Concentration over time: effective number of bets"):
+        st.caption(
+            "Estimated only on returns realized up to and including each "
+            "month, so the reading is available **at** the decision, not after "
+            "it. The flat line is the bottom decile of this backtest."
+        )
+        _fig = bar_chart(_enb, name="Effective bets", mean_line=True)
+        _fig.add_hline(y=_floor, line_dash="dot", line_color=STYLE["negative"],
+                       annotation_text=f"10th pct = {_floor:.1f}")
+        st.plotly_chart(_fig, use_container_width=True, key="overview_effective_bets")
 
 active = configs[active_idx]
 active_result = active["result"]

@@ -59,7 +59,7 @@ def prediction_key(model_type, model_params, retrain_every, feature_cols=None, w
     })
 
 
-def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_only", K_short=10, construction_method="equal_weight", tc_bps=0.0, cost_bps=10.0, max_ivol_xs=None):
+def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_only", K_short=10, construction_method="equal_weight", tc_bps=0.0, cost_bps=10.0, max_ivol_xs=None, max_per_sector=None, cov_window=60):
     return _make_key({
         # Bump when weight construction changes in a way the other key fields
         # cannot express. v2: ERC/MVO now receive a real point-in-time
@@ -76,6 +76,12 @@ def portfolio_key(pred_key, K, vol_tilt, regime_lookback, strategy_type="long_on
         'tc_bps': tc_bps,
         'cost_bps': cost_bps,
         'max_ivol_xs': max_ivol_xs,
+        'max_per_sector': max_per_sector,
+        # v3 of the MVO turnover reference: it used to rank on the untilted
+        # pred, so at any vol_tilt > 0 the penalty priced names the book did not
+        # hold. Cached MVO entries from before that are wrong.
+        'cov_window': cov_window,
+        'mvo_reference_version': 3,
     })
 
 

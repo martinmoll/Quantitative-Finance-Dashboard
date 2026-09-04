@@ -480,3 +480,19 @@ def test_effective_bets_weighting_variants_agree_under_equal_weights():
         {"permno": permnos, "weight": [0.7, 0.1, 0.1, 0.1]})}
     assert not np.isclose(effective_bets(tilted, hist).iloc[0],
                           effective_bets(tilted, hist, weighted=True).iloc[0])
+
+
+def test_effective_bets_survives_a_recent_listing():
+    """One short-history name must not blank the whole month.
+
+    Row-wise dropna lets a recent listing truncate the window for every other
+    name. The 2026-06 book held SNDK, which had too little history, so the
+    month this metric exists to flag read NaN.
+    """
+    from core.diagnostics import effective_bets
+    hist, months, permnos = _orthogonal_history(4)
+    hist = hist.copy()
+    hist.loc[months[:-3], permnos[0]] = np.nan       # newly listed name
+    enb = effective_bets(_equal_weight_book(permnos, months[-1:]), hist)
+    assert enb.notna().all(), "a recent listing blanked the reading"
+    np.testing.assert_allclose(enb.values, 3.0, atol=1e-10)

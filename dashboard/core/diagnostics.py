@@ -589,14 +589,16 @@ def effective_bets(
     one factor is one bet, and the position count reports thirty.
 
     This is the metric that flagged July 2026 in advance. The book decided at
-    2026-06 read 2.03 effective bets — the 3rd percentile of its own history —
-    and went on to lose 30.8% gross while the market rose 1.4%.
+    2026-06 read 1.73 effective bets against a median of 2.41 — the 2nd
+    percentile of its own history — and went on to lose 30.8% gross while the
+    market rose 1.4%.
 
-    Read it as a **verification** instrument, not a forecast. Once a sector cap
-    is applied the same book reads 3.20 and the correlation with next-month
-    return collapses from +0.38 to +0.04, because the constraint has already
-    removed the exposure this was detecting. A low reading under an active cap
-    means the book has found a way to concentrate that the cap does not catch.
+    Read it as a **verification** instrument, not a forecast. Under a sector cap
+    of 4 the same book reads 2.72, the 65th percentile, and the correlation with
+    next-month return collapses from +0.20 to +0.04, because the constraint has
+    already removed the exposure this was detecting. A low reading under an
+    active cap means the book has found a way to concentrate that the cap does
+    not catch.
 
     Estimated on the point-in-time covariance — only returns realized up to and
     including month ``m`` — so the reading is available *at* the decision.
@@ -614,9 +616,11 @@ def effective_bets(
     Normalizing is an exact no-op there, and is what makes a long-short book,
     whose weights sum to about zero, comparable at all.
 
-    NaN for a month whose book has fewer than ``min_names`` names with history,
-    fewer than ``min_obs`` overlapping observations, or a non-positive portfolio
-    variance. Empty Series when there is no history at all. Note this
+    Names without a full ``window`` of history are dropped from the estimate
+    rather than truncating the window for everyone, so the reading covers the
+    part of the book that can be measured. NaN for a month left with fewer than
+    ``min_names`` such names, fewer than ``min_obs`` observations, or a
+    non-positive portfolio variance. Empty Series when there is no history at all. Note this
     deliberately does **not** reuse ``portfolio._get_cov_matrix``: its identity
     fallback would make N_eff equal the position count exactly, which is the
     most reassuring answer available and would be manufactured from no data.
@@ -641,11 +645,24 @@ def effective_bets(
         hist = returns_history.loc[returns_history.index <= m, names]
         if window:
             hist = hist.tail(int(window))
-        hist = hist.dropna()          # listwise, as _get_cov_matrix does
-        if len(hist) < min_obs:
+
+        # Drop short-history *names*, then take a pairwise covariance. Row-wise
+        # dropna — what _get_cov_matrix does — lets one recent listing truncate
+        # the sample for every other name, and that blanks exactly the months
+        # this is meant to flag: the 2026-06 book held SNDK with 8 observations
+        # against 57 for the rest, and the whole month read NaN.
+        hist = hist.loc[:, hist.notna().sum() >= min_obs]
+        if hist.shape[1] < min_names:
+            out[m] = np.nan
+            continue
+        cov_df = hist.cov(min_periods=min_obs)
+        # A pair that still overlaps too little leaves a NaN cell; drop those.
+        cov_df = cov_df.loc[cov_df.notna().all(), cov_df.notna().all()]
+        if cov_df.shape[1] < min_names or cov_df.isna().to_numpy().any():
             out[m] = np.nan
             continue
 
+        names = list(cov_df.columns)
         w = w_all.loc[names].to_numpy(dtype=float)
         gross = np.abs(w).sum()
         if gross <= 0:
@@ -653,7 +670,7 @@ def effective_bets(
             continue
         w = w / gross
 
-        cov = hist.cov().to_numpy(dtype=float)
+        cov = cov_df.to_numpy(dtype=float)
         port_var = float(w @ cov @ w)
         asset_vol = np.sqrt(np.clip(np.diag(cov), 0.0, None))
         mean_vol = float(np.abs(w) @ asset_vol) if weighted else float(asset_vol.mean())

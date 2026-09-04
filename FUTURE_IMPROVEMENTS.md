@@ -111,3 +111,83 @@ larger deferred pieces:
 - Paper trading: persist each month's target portfolio to disk; on the next run
   compare realized vs expected returns and accumulate a live IC series on the
   Monitoring page.
+
+---
+
+## Concentration control — follow-ups and negative results
+
+Context: the July 2026 unwind. The equity curve falls between its May and June
+2026 points; because the series is indexed by the *decision* month and books
+`y_raw`, that loss was realized in **calendar July 2026**. The market did not
+fall — cap-weighted universe +1.39%, only 38.7% of names down, S&P 500 +0.19%.
+One theme fell: SNDK −46.6%, GLW −45.9%, KLAC −39.4%, INTC −35.4%, LRCX −32.4%,
+AMAT −29.8%, MU −28.7%. The book held nine of ten names in that supply chain
+and lost 30.8% gross. Book beta 2.76 × market +1.39% = +3.84% expected, actual
+−30.8%, **residual −34.7%** — a theme shock, not market exposure.
+
+Shipped: a sector count cap (`max_per_sector`), a bounded covariance window
+(`cov_window`), and `diagnostics.effective_bets`.
+
+### Rejected, with the measurement — do not retry without new evidence
+
+- **Industry-level cap.** Measured at K=10: worst month −27.8% vs −20.2% for a
+  sector cap, SR 1.34 vs 1.40. The theme spanned six `industry` labels
+  (Semiconductors, Semiconductor Equipment & Materials, Computer Hardware,
+  Electronic Components, Communication Equipment), so capping semicap at 3 just
+  backfilled with semiconductors and hardware — the same trade. `industry` is
+  too fine a granularity to bind on a cross-industry theme.
+- **Correlation clustering of candidates.** Hierarchical clusters on trailing
+  return correlation, capped per cluster: worst month −26.5%, SR 1.36. Worse
+  than a plain sector cap and it puts a clustering step on the hot path.
+- **EWMA / shorter covariance as an early warning.** The 2026-06 book moves only
+  from the 10th to the 26th–33rd percentile of ex-ante risk — still below
+  median — and every estimator tried (36m and 12m sample, EWMA halflife 6 and
+  12) correlates *negatively* with next-month absolute return. Portfolio
+  covariance on a ten-name book does not forecast this. `cov_window` was kept
+  as an estimator fix for ERC/MVO, not as protection.
+- **Binding on effective bets.** Under a sector cap the metric stops predicting:
+  correlation with next-month return falls +0.20 → +0.04 and bottom-decile
+  months go from −6.6% to +1.1% mean next-month return, because the cap already
+  removed the exposure it detects. A second binding constraint would be
+  redundant and would make the two impossible to attribute separately.
+
+### Still open
+
+- **A concentration cap does not fix the max drawdown** (−39.5% → −38.4%). MDD
+  here is a multi-month 2022 path, not a single event. Fixing it is a different
+  problem from fixing the worst month.
+- **`prev_weights` should be a permno-indexed `pd.Series`, not a positional
+  array.** `_mvo_weights` aligns `ref` by position, which is the only reason
+  `build_portfolio_series` has to re-derive the book to build `mvo_prev`. If
+  `_mvo_weights` did `selected["permno"].map(prev_weights).fillna(0.0)` the
+  duplication would disappear and could never drift again. `test_mvo_tc_aware`
+  passes an ndarray, so the parameter would have to accept both.
+- **`5_Portfolio_Construction.py` risk decomposition uses `np.eye(n) * 0.01`.**
+  Its "Risk Decomposition" pie is therefore normalized `|weight|`, not risk. It
+  should take the same point-in-time covariance the diagnostic now builds.
+- **Long-short passes the long leg's `prev_weights` to the short leg**
+  (`portfolio.py`, `_compute_weights` for `bottom`). With `mvo` and
+  `K_short != K` this misaligns.
+
+## Dead feature columns
+
+**47 of the 231 columns in `alpha_dataset_v2.parquet` are 100% NaN.**
+`ind_crowding` is one of them, not a special case.
+
+- **`_TIER1_CORE` contains `sue_xs`, `revision_xs` and `beat_xs`, all entirely
+  NaN.** `backtest.py` filters features on column *existence* only, and both
+  `features.py` and `backtest.py` blanket-`fillna(0.0)`, so these enter every
+  Tier 1 fit as constant-zero columns. There is no variance or coverage guard
+  anywhere. The Data Explorer's missing-data chart scans `_xs` columns only,
+  which is why this was never visible. **A zero-variance / coverage filter
+  alongside the existence check is cheap and independent of everything else.**
+- **`ind_crowding` specifically** is in `RED_FEATURES` (`pipeline/config.py`) —
+  consciously parked for want of a data feed — and also in `_NO_XS_SUFFIX`, so
+  it has no `_xs` twin and never reaches the model matrix at all. Making it real
+  needs a definition first; nothing in the repo says what it should measure. A
+  turnover-based industry crowding measure is buildable from existing columns
+  (`turnover` is 84,800/84,861 non-null) and would go in `peer_features.py`
+  beside `ind_mom`, come out of both lists, and need a dataset rebuild.
+  Caveat: median names per industry-month is 1 before 2020 and 3 in the 2020s,
+  so industry-level statistics are near-degenerate on this panel — group on
+  `sector` (12 values, dense) or require a minimum group size.

@@ -148,7 +148,13 @@ with port_col3:
 with port_col4:
     vol_tilt = st.slider("Vol tilt", min_value=0.0, max_value=0.50, step=0.01, value=0.05)
 with port_col5:
-    regime_lookback = st.slider("Regime lookback", min_value=0, max_value=12, value=6)
+    regime_lookback = st.slider(
+        "Regime lookback", min_value=0, max_value=12, value=6,
+        help="Goes to cash when trailing SPY over this window is negative. It "
+             "cannot help when one theme unwinds inside a flat index: it was "
+             "on through June and July 2026 because the market was up while "
+             "the book fell 31%.",
+    )
 
 construction_method = st.selectbox(
     "Construction Method",
@@ -164,6 +170,17 @@ cap_on = st.checkbox(
 )
 max_ivol_xs = st.slider("Max ivol (cross-sectional z)", min_value=-1.0,
                         max_value=3.0, value=1.0, step=0.5) if cap_on else None
+
+sector_cap_on = st.checkbox(
+    "Cap names per sector (recommended)", value=True,
+    help="Hard count cap per sector. The book still holds K names: a name whose "
+         "sector is full is skipped and the next-best name takes its place. "
+         "Measured at K=10, cap 4: worst month -30.9% to -20.2% and Sharpe "
+         "1.26 to 1.40, with no cost to return. It does not move the max "
+         "drawdown, which is a multi-month path rather than a single event.",
+)
+max_per_sector = st.slider("Max names per sector", min_value=1, max_value=max(K, 1),
+                           value=min(4, K), step=1) if sector_cap_on else None
 
 cost_bps = st.slider(
     "Transaction cost (bps, one way)", min_value=0, max_value=50, value=10, step=5,
@@ -221,6 +238,7 @@ if run_clicked:
         pred_key, K, vol_tilt, regime_lookback,
         strategy_key, K_short, construction_method, tc_bps=tc_bps,
         cost_bps=cost_bps, max_ivol_xs=max_ivol_xs,
+        max_per_sector=max_per_sector,
     )
     portfolio = cache.get_portfolio(port_key)
 
@@ -232,6 +250,7 @@ if run_clicked:
             market_monthly=market_monthly, tc_bps=tc_bps,
             returns_history=st.session_state.get("returns_history"),
             cost_bps=cost_bps, max_ivol_xs=max_ivol_xs,
+            max_per_sector=max_per_sector,
         )
         cache.save_portfolio(port_key, portfolio)
 
@@ -245,6 +264,7 @@ if run_clicked:
         "features": available_features, "window_type": window_type,
         "oos_start": oos_start, "rolling_window": rolling_window,
         "cost_bps": cost_bps, "max_ivol_xs": max_ivol_xs,
+        "max_per_sector": max_per_sector,
     }
     st.success("Backtest complete!")
     render_next_steps("model")
