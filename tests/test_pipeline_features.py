@@ -209,3 +209,43 @@ def test_fundamentals_apply_reporting_lag():
                 + pd.DateOffset(months=REPORTING_LAG_MONTHS)).strftime("%Y-%m")
     assert expected in yms                 # available after the filing lag
     assert "2020-03" not in yms            # never on the quarter-end month
+
+
+def _two_quarter_filer():
+    return {
+        "AAA": {
+            "quarters": pd.DatetimeIndex(["2020-03-31", "2020-06-30"]),
+            "income": {"TotalRevenue": [100.0, 110.0], "NetIncome": [10.0, 11.0],
+                       "GrossProfit": [40.0, 44.0], "OperatingIncome": [20.0, 22.0],
+                       "DilutedEPS": [1.0, 1.1]},
+            "balance": {"TotalAssets": [500.0, 510.0],
+                        "TotalEquityGrossMinorityInterest": [200.0, 210.0]},
+            "cashflow": {"OperatingCashFlow": [15.0, 16.0]},
+            "market_cap": 1000.0,
+        }
+    }
+
+
+def test_fundamentals_stay_current_between_filings():
+    """A filing is the newest public figure until the next one supersedes it.
+
+    Each quarter was stamped to one month only, so two months in every three
+    had no fundamentals at all and the model saw them as fabricated zeros.
+    """
+    out = compute_fundamental_features(_two_quarter_filer())
+    q1 = out[out["ym"].isin(["2020-05", "2020-06", "2020-07"])]
+    assert len(q1) == 3
+    assert q1["bm"].nunique() == 1                 # the same filing, repeated
+    assert q1["bm"].iloc[0] == pytest.approx(200.0 / 1000.0)
+
+
+def test_next_filing_supersedes_the_carried_one():
+    out = compute_fundamental_features(_two_quarter_filer()).set_index("ym")
+    assert out.loc["2020-07", "bm"] == pytest.approx(200.0 / 1000.0)   # Q1
+    assert out.loc["2020-08", "bm"] == pytest.approx(210.0 / 1000.0)   # Q2
+
+
+def test_a_filer_that_stops_does_not_carry_forever():
+    """Stale figures must expire, or a delisted name keeps reporting."""
+    out = compute_fundamental_features(_two_quarter_filer())
+    assert out["ym"].max() == "2020-10"            # Q2 published 08, carried 3

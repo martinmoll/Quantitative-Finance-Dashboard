@@ -191,3 +191,98 @@ Shipped: a sector count cap (`max_per_sector`), a bounded covariance window
   Caveat: median names per industry-month is 1 before 2020 and 3 in the 2020s,
   so industry-level statistics are near-degenerate on this panel — group on
   `sector` (12 values, dense) or require a minimum group size.
+
+## Feature audit — what was fixed, what stays dead
+
+Measured on `alpha_dataset_v2.parquet`, OOS 2016-07 onward.
+
+### Fixed
+
+- **The value/quality block was fabricated in two months out of every three.**
+  `compute_fundamental_features` stamped each quarter to one month only
+  (quarter-end + `REPORTING_LAG_MONTHS`), and the assembler left-joins on
+  `["ticker", "ym"]`, so the two months between filings had no fundamentals at
+  all. Per-month coverage of `bm` cycled 0.87 / 0.09 / 0.04 from 2025-08. A
+  filing does not stop being the newest public figure the month after it lands,
+  so it is now carried until the next one supersedes it, capped at the
+  three-month filing cadence so a company that stops filing stops reporting.
+  On the cached filings this turns 3,538 published filing-months into 11,793
+  (x3.33) and gives every month from 2025-01 to 2026-10 about 575 names with a
+  `bm` value instead of one month in three. **Needs a pipeline rebuild to reach
+  the parquet.**
+- **A no-variance guard at fit time.** `run_walk_forward` checked only that a
+  feature column existed, then `fillna(0.0)`. For cross-sectionally
+  standardized features zero means "exactly average", so an all-NaN column
+  entered every fit as "average everything" for every stock. At the first Tier 1
+  retrain 33 of 52 columns were constant this way; by 2026 it is 9 of 52.
+  `_informative_features` now judges each training window, so a column that is
+  empty early and real later — the fundamentals block — is picked up at the
+  first retrain after it becomes real, with no look-ahead.
+  Measured against the same run without the guard: **out-of-sample IC, annual
+  return, Sharpe and worst month are unchanged** — HGB tier 2 (66 columns in,
+  52 fitted at the last retrain) gives IC +0.0321, t +2.88, 64.3% a year,
+  SR 1.35, worst month −27.5% either way; Lasso tier 1 (52 in, 43 fitted) is
+  likewise identical. An HGB walk-forward **halves**, 284s to 141s. Pushing
+  further to a 5% coverage floor, which also drops the sparse fundamentals,
+  changes nothing either (IC +0.0323, SR 1.35) — so a coverage threshold buys
+  nothing the variance check does not, and was left out rather than adding a
+  number to tune. The gain is run time and an honest feature-importance
+  report, not return. `predictions_version` bumped to 3
+  because RandomForest samples `max_features` and Fama-MacBeth inverts the
+  design matrix, so those two do change.
+- **A partial FRED download is no longer silent.** `fetch_macro` raised only
+  when *every* series failed, so one failure was a warning nobody read and the
+  partial frame was cached and reused forever. The live cache holds
+  `credit_spread`, `epu` and `fin_stress` but not `vix` or `yield_curve_slope`,
+  which is why `macro_unc_1m`, `macro_unc_12m` and `mom_x_unc` have always been
+  empty. It now names the missing series and the features they cost.
+  **`FRED_API_KEY` is not set, so filling them needs a key and a rebuild.**
+
+### New features prototyped and rejected — do not retry without new evidence
+
+Rank IC and its t-statistic, OOS months only. Nothing cleared |t| > 2 on its
+incremental content, and every candidate is another risk loading of the kind
+survivorship bias inflates on this panel.
+
+| candidate | mean IC | t | note |
+|---|---|---|---|
+| `ind_beta` (industry, ex-self, 24m) | +0.019 | +1.78 | |
+| `sec_beta` (sector, ex-self, 24m) | +0.025 | +1.43 | |
+| `ind_comovement` / `sec_corr` | +0.001…+0.009 | +0.08…+0.56 | no alpha at any window |
+| downside beta (36m, down months) | +0.043 | +2.04 | mostly plain beta |
+| downside beta − beta | +0.017 | +1.19 | the incremental part |
+| seasonality (Heston-Sadka) | −0.010 | −0.77 | |
+
+- **The ex-self correction matters.** An earlier pass measured `ind_beta` at
+  t = +2.53 by regressing each stock on a peer mean that included itself. With
+  the stock removed from its own peer group it is +1.78. Industry groups have a
+  median of 2-3 names on this panel, so the contamination was large.
+- **Comovement as a portfolio constraint was already rejected** (correlation
+  clustering measured worse than a plain sector cap), and `effective_bets` is
+  the portfolio-level version of the same quantity. There is no remaining slot
+  for it.
+
+### Still dead, and why
+
+- **No data source in the repo:** the options/IV block (`iv_atm_30d`,
+  `iv_atm_91d`, `iv_skew`, `pc_vol_ratio`, `pc_oi_ratio`, `vrp`,
+  `iv_term_structure`, `sector_iv`, `sector_vrp`) and the analyst block
+  (`beat`, `n_analysts`, `revision`, `dispersion`, `revision_ratio`,
+  `rev_surp`, `peer_revision`). These are the `RED_FEATURES` list; it is
+  accurate.
+- **`ind_size_ret` and `ind_size_mom`** are assigned `np.nan` outright in
+  `peer_features._add_lagged_diffs`. An industry x size double sort is
+  degenerate here (median 2-3 names per industry-month before the split), so
+  reviving them means grouping on `sector`, not `industry`.
+- **The fundamentals themselves are still too short to test.** Even carried
+  forward, the cache holds a median of 7 quarter-ends and only 16 OOS months
+  have enough coverage to measure. Every value/quality IC over those months is
+  noise (|t| < 2.5, mostly negative). The carry-forward is a point-in-time
+  correctness fix that will pay off as history accumulates, not a signal today.
+- **Momentum has no IC on this panel** (`ret_2_12_xs` t = +0.25,
+  `ret_1_xs` t = −0.05), partly because the daily price cache starts 2021-09:
+  25 of 123 OOS months have zero momentum coverage. The measurable edge is
+  `illiq_12m_xs` (t = +3.02), `log_me_xs` (t = −2.96) and `ivol_xs` (t = +1.73)
+  — illiquid, small and volatile, which is exactly what a survivor-only
+  universe inflates. Treat the level of that edge as unproven until the
+  point-in-time universe item above is done.

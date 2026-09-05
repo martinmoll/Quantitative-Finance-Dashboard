@@ -65,3 +65,49 @@ def test_fetch_failure_no_cache_raises_runtime(tmp_cache):
             macro_mod.fetch_macro(api_key="dummy-key")
     finally:
         fredapi.Fred = orig
+
+
+# --- partial-download visibility -------------------------------------------
+# The cached frame holds credit_spread, epu and fin_stress but not vix or
+# yield_curve_slope, so macro_unc_1m, macro_unc_12m and mom_x_unc have been
+# empty in every dataset build. fetch_macro only raised when *every* series
+# failed, so the gap never reached the caller.
+
+class _PartialFred:
+    """Serves one series and fails the rest, like a partial FRED outage."""
+
+    def __init__(self, api_key=None):
+        pass
+
+    def get_series(self, code, **k):
+        if code != "BAA10Y":
+            raise RuntimeError(f"no data for {code}")
+        return pd.Series([1.0, 2.0],
+                         index=pd.DatetimeIndex(["2020-01-31", "2020-02-29"]))
+
+
+def _with_fred(cls, fn):
+    import fredapi
+    fredapi.Fred, orig = cls, fredapi.Fred
+    try:
+        return fn()
+    finally:
+        fredapi.Fred = orig
+
+
+def test_partial_download_names_the_missing_series(tmp_cache, caplog):
+    with caplog.at_level("WARNING"):
+        out = _with_fred(_PartialFred,
+                         lambda: macro_mod.fetch_macro(api_key="dummy-key"))
+    assert list(out.columns) == ["credit_spread"]
+    assert "vix" in caplog.text and "yield_curve_slope" in caplog.text
+
+
+def test_cached_frame_reports_its_own_gaps(tmp_cache, monkeypatch, caplog):
+    monkeypatch.setattr(macro_mod, "FRED_API_KEY", "")
+    pd.DataFrame({"credit_spread": [1.0]},
+                 index=pd.DatetimeIndex(["2020-01-31"])).to_parquet(
+        tmp_cache / "fred_data.parquet")
+    with caplog.at_level("WARNING"):
+        macro_mod.fetch_macro(api_key=None)
+    assert "vix" in caplog.text

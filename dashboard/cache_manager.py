@@ -42,8 +42,13 @@ def prediction_key(model_type, model_params, retrain_every, feature_cols=None, w
     return _make_key({
         # Bump when the shape of a stored prediction frame changes. v2 adds
         # ivol_xs, which portfolio construction needs for the volatility cap;
-        # frames cached before it lack the column.
-        'predictions_version': 2,
+        # frames cached before it lack the column. v3: features with no
+        # variance in the training window no longer enter the fit. HGB and
+        # Lasso predictions measured identical either way (a constant column
+        # cannot split and gets a zero coefficient), but RandomForest samples
+        # max_features and Fama-MacBeth inverts the design matrix, so those
+        # two do change.
+        'predictions_version': 3,
         'model_type': model_type,
         'model_params': model_params,
         'retrain_every': retrain_every,
