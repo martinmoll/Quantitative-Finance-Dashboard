@@ -59,3 +59,29 @@ def test_validate_schema_passes():
     df = pd.DataFrame(columns=cols)
     missing = validate_schema(df)
     assert len(missing) == 0
+
+
+# --- permno stability -------------------------------------------------------
+# permno is the panel's identity key. It was abs(hash(ticker)) % 100000, and
+# Python randomizes string hashing per process, so every pipeline run invented
+# new ids: 483 of 510 tickers ended up with up to 4 permnos each.
+
+def test_permno_is_stable_across_processes():
+    """The same ticker must get the same permno in a fresh interpreter."""
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import sys; sys.path.insert(0, r"{root}")
+        from pipeline.assembler import ticker_permno
+        print(ticker_permno("AAPL"), ticker_permno("MSFT"), ticker_permno("ZZZZ"))
+    """).format(root=r"c:/Users/mamog/OneDrive/Dokumenter/GitHub/Alpha-Model-RMBI")
+    runs = {subprocess.run([sys.executable, "-c", code], capture_output=True,
+                           text=True).stdout.strip() for _ in range(3)}
+    assert len(runs) == 1, f"permno changed between processes: {runs}"
+
+
+def test_permno_is_unique_per_ticker():
+    from pipeline.assembler import ticker_permno
+    tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "BRK-B", "A", "AA", "AAA"]
+    ids = [ticker_permno(t) for t in tickers]
+    assert len(set(ids)) == len(ids), "permno collision between distinct tickers"
+    assert all(isinstance(i, int) and i > 0 for i in ids)
