@@ -7,9 +7,67 @@ import numpy as np
 from pipeline.config import (
     PARQUET_PATH, CSV_PATH, RAW_FEATURE_COLS, RED_FEATURES,
     TARGET_COLS, FACTOR_COLS, DATA_DIR, XS_FEATURE_COLS, dataset_paths,
+    CACHE_DIR,
 )
 
 logger = logging.getLogger(__name__)
+
+
+_PERMNO_REGISTRY = CACHE_DIR / "permno_registry.csv"
+_PERMNO_START = 10_000
+
+
+def _load_registry() -> dict[str, int]:
+    if _PERMNO_REGISTRY.exists():
+        reg = pd.read_csv(_PERMNO_REGISTRY)
+        return dict(zip(reg["ticker"].astype(str), reg["permno"].astype(int)))
+    return {}
+
+
+def ticker_permno(ticker: str) -> int:
+    """Stable, collision-free security id for a ticker.
+
+    This was ``abs(hash(ticker)) % 100000``. Python randomizes string hashing
+    per process, so every pipeline run minted new ids and the same stock ended
+    up as several unrelated securities in the panel — 483 of 510 tickers had up
+    to 4 permnos each, and 4 ids collided onto more than one ticker.
+
+    That breaks everything keyed on permno: the forward-return backfill maps
+    month t to month t+1 by permno, ``build_returns_history`` pivots on it (so a
+    stock's history fragments and the covariance falls back to the identity),
+    and turnover compares weights across months by it.
+
+    Ids are assigned incrementally and persisted, so a ticker keeps its id for
+    the life of the registry.
+    """
+    reg = _load_registry()
+    if ticker in reg:
+        return reg[ticker]
+    new_id = max(reg.values(), default=_PERMNO_START) + 1
+    reg[ticker] = new_id
+    _PERMNO_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(sorted(reg.items()), columns=["ticker", "permno"]).to_csv(
+        _PERMNO_REGISTRY, index=False
+    )
+    return new_id
+
+
+def assign_permnos(tickers) -> dict[str, int]:
+    """Ids for many tickers, writing the registry once rather than per ticker."""
+    reg = _load_registry()
+    nxt = max(reg.values(), default=_PERMNO_START) + 1
+    added = False
+    for t in sorted(set(map(str, tickers))):
+        if t not in reg:
+            reg[t] = nxt
+            nxt += 1
+            added = True
+    if added:
+        _PERMNO_REGISTRY.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(sorted(reg.items()), columns=["ticker", "permno"]).to_csv(
+            _PERMNO_REGISTRY, index=False
+        )
+    return reg
 
 
 def cross_sectional_standardize(
@@ -100,7 +158,7 @@ def assemble_month(
     if ticker_to_permno:
         merged["permno"] = merged["ticker"].map(ticker_to_permno)
     else:
-        merged["permno"] = merged["ticker"].apply(lambda t: abs(hash(t)) % 100000)
+        merged["permno"] = merged["ticker"].map(assign_permnos(merged["ticker"]))
 
     if not factors.empty:
         factor_monthly = factors.reset_index()

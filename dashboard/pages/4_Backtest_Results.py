@@ -8,7 +8,8 @@ from core.diagnostics import (
     compute_performance_metrics, compute_ic_stats, fundamental_law, feature_ic,
     compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci, multiple_testing_hurdle,
     probabilistic_sharpe_ratio, deflated_sharpe_ratio,
-    probability_of_backtest_overfitting,
+    probability_of_backtest_overfitting, survivorship_premium,
+    return_by_vol_decile, effective_bets,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -93,6 +94,110 @@ with head_right:
         pin_clicked = st.button("Pin to compare", type="primary")
 
 render_workflow_status("results")
+
+# --- Survivorship warning -------------------------------------------------
+# The universe is today's index constituents projected backwards, so every
+# number on this page is measured on a book that could not have been held at
+# the time. Show the size of that head start before any performance figure.
+_panel = st.session_state.get("df")
+_oos = st.session_state.get("backtest_params", {}).get("oos_start")
+if _panel is not None:
+    _surv = survivorship_premium(_panel, start=_oos)
+    if _surv:
+        banner(
+            "warning",
+            f"<b>Survivorship bias: +{_surv['gap_ann']:.1%} per year.</b> "
+            f"Holding <i>every</i> name in this universe returned "
+            f"{_surv['panel_ann']:.1%}/yr against a benchmark of "
+            f"{_surv['bench_ann']:.1%}/yr, before any model. "
+            f"Universe: {_surv['names_first']} names at the start, "
+            f"{_surv['names_last']} at the end.",
+            detail=(
+                "The universe is **today's** index constituents projected "
+                "backwards. Companies that were dropped, acquired or went "
+                "bankrupt are absent, so the backtest picks only from names "
+                "that survived. No investor could have held this list at the "
+                "time.\n\n"
+                "Treat the gap above as a **floor**, not a point estimate. It "
+                "understates the true effect, because the same surviving names "
+                "also dominate the training data. Subtract it from any Sharpe "
+                "or return figure on this page before you act on it.\n\n"
+                "Fixing this properly needs point-in-time index membership and "
+                "delisting returns — see `ROADMAP.md` Tier 1."
+            ),
+        )
+
+        with st.expander("Where the bias lives: return by volatility decile"):
+            _dec = return_by_vol_decile(
+                _panel,
+                holdings=(result or {}).get("holdings"),
+                start=_oos,
+            )
+            if not _dec.empty:
+                st.caption(
+                    "Deciles are formed within each month, so the split itself "
+                    "carries no look-ahead. In a point-in-time universe the "
+                    "highest-volatility decile should **not** reliably "
+                    "outperform — those are the names that blow up, and the "
+                    "ones that did are missing here. A large positive spread "
+                    "is measuring the survivor filter, not a risk premium."
+                )
+                _show = _dec.copy()
+                _show["ann_return"] = (_show["ann_return"] * 100).round(1)
+                if "share_of_book" in _show.columns:
+                    _show["share_of_book"] = (_show["share_of_book"] * 100).round(1)
+                st.dataframe(
+                    _show.rename(columns={
+                        "ann_return": "Universe return %/yr",
+                        "n_obs": "Observations",
+                        "share_of_book": "Share of book %",
+                    }),
+                    use_container_width=True,
+                )
+                _spread = (_dec["ann_return"].iloc[-1] - _dec["ann_return"].iloc[0]) * 100
+                st.caption(f"Top decile minus bottom: **{_spread:.1f}** pct pts/yr.")
+
+# --- Concentration: effective number of bets ------------------------------
+# The position count cannot see this. In July 2026 the book held nine of ten
+# names in the semiconductor supply chain and lost 30.8% gross while the market
+# rose 1.4%. It read 1.73 effective bets at the decision point, the 2nd
+# percentile of its own history — a warning that was available in advance.
+_enb = effective_bets(
+    (result or {}).get("holdings", {}), st.session_state.get("returns_history"),
+)
+_enb = _enb.dropna() if len(_enb) else _enb
+if len(_enb) >= 12:
+    _floor = _enb.quantile(0.10)
+    _latest, _latest_m = _enb.iloc[-1], _enb.index[-1]
+    if _latest <= _floor:
+        banner(
+            "warning",
+            f"<b>Concentration: {_latest:.1f} effective bets</b> in "
+            f"<span class='mono'>{_latest_m}</span>, the bottom decile of this "
+            f"backtest (median <span class='mono'>{_enb.median():.1f}</span>). "
+            f"The book holds more positions than it holds bets.",
+            detail=(
+                "Effective bets is `(mean asset vol / portfolio vol)²` on the "
+                "held book, from the point-in-time covariance. Ten names that "
+                "move as one is one bet; the position count still says ten.\n\n"
+                "Read it as verification, not forecast. With a sector cap "
+                "active this metric stops predicting returns (correlation with "
+                "the next month falls from +0.20 to +0.04) because the "
+                "constraint has already removed the exposure it detects. A low "
+                "reading *while a cap is on* means the book has found a way to "
+                "concentrate that the cap does not catch."
+            ),
+        )
+    with st.expander("Concentration over time: effective number of bets"):
+        st.caption(
+            "Estimated only on returns realized up to and including each "
+            "month, so the reading is available **at** the decision, not after "
+            "it. The flat line is the bottom decile of this backtest."
+        )
+        _fig = bar_chart(_enb, name="Effective bets", mean_line=True)
+        _fig.add_hline(y=_floor, line_dash="dot", line_color=STYLE["negative"],
+                       annotation_text=f"10th pct = {_floor:.1f}")
+        st.plotly_chart(_fig, use_container_width=True, key="overview_effective_bets")
 
 active = configs[active_idx]
 active_result = active["result"]

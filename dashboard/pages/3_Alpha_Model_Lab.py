@@ -108,7 +108,18 @@ all_months = sorted(df["ym"].unique())
 oos_candidates = [m for m in all_months if m >= "2010-01"]
 
 with wf_col1:
-    oos_start = st.selectbox("OOS Start", oos_candidates, index=oos_candidates.index("2015-01") if "2015-01" in oos_candidates else 0)
+    # Default 2016-07: the panel jumps from 89 names to 468 that month. Before
+    # it, the universe is only the handful of today's constituents with price
+    # history that far back, so earlier start dates are severely survivorship-
+    # biased even by this dataset's standards.
+    _default_oos = "2016-07" if "2016-07" in oos_candidates else oos_candidates[0]
+    oos_start = st.selectbox("OOS Start", oos_candidates,
+                             index=oos_candidates.index(_default_oos))
+    if oos_start < "2016-07":
+        st.caption(
+            ":warning: Before 2016-07 the universe is under 90 names — today's "
+            "survivors only. Results from that window are not credible."
+        )
 with wf_col2:
     retrain_freq = st.selectbox("Retrain Every (months)", [6, 12, 24], index=1)
 with wf_col3:
@@ -137,16 +148,52 @@ with port_col3:
 with port_col4:
     vol_tilt = st.slider("Vol tilt", min_value=0.0, max_value=0.50, step=0.01, value=0.05)
 with port_col5:
-    regime_lookback = st.slider("Regime lookback", min_value=0, max_value=12, value=6)
+    regime_lookback = st.slider(
+        "Regime lookback", min_value=0, max_value=12, value=6,
+        help="Goes to cash when trailing SPY over this window is negative. It "
+             "cannot help when one theme unwinds inside a flat index: it was "
+             "on through June and July 2026 because the market was up while "
+             "the book fell 31%.",
+    )
 
 construction_method = st.selectbox(
     "Construction Method",
     ["equal_weight", "score_weight", "inverse_vol", "erc", "mvo"],
 )
 
+cap_on = st.checkbox(
+    "Cap idiosyncratic volatility (recommended)", value=True,
+    help="Without a cap the model puts ~91% of the book in the top two "
+         "volatility deciles, where the survivor-only universe is most "
+         "distorted. Capping barely moves the Sharpe but roughly halves the "
+         "return and the drawdown.",
+)
+max_ivol_xs = st.slider("Max ivol (cross-sectional z)", min_value=-1.0,
+                        max_value=3.0, value=1.0, step=0.5) if cap_on else None
+
+sector_cap_on = st.checkbox(
+    "Cap names per sector (recommended)", value=True,
+    help="Hard count cap per sector. The book still holds K names: a name whose "
+         "sector is full is skipped and the next-best name takes its place. "
+         "Measured at K=10, cap 4: worst month -30.9% to -20.2% and Sharpe "
+         "1.26 to 1.40, with no cost to return. It does not move the max "
+         "drawdown, which is a multi-month path rather than a single event.",
+)
+max_per_sector = st.slider("Max names per sector", min_value=1, max_value=max(K, 1),
+                           value=min(4, K), step=1) if sector_cap_on else None
+
+cost_bps = st.slider(
+    "Transaction cost (bps, one way)", min_value=0, max_value=50, value=10, step=5,
+    help="Charged against realized returns every month, on the notional traded. "
+         "Set to 0 for a frictionless (unrealistic) run.",
+)
+
+# Separate knob: MVO can also penalize turnover *inside* the optimizer, which
+# is a different thing from charging the realized cost above.
 tc_bps = 0.0
 if construction_method == "mvo":
-    tc_bps = st.slider("Transaction cost (bps)", min_value=0, max_value=50, value=10, step=5)
+    tc_bps = st.slider("MVO turnover penalty (bps)", min_value=0, max_value=50,
+                       value=10, step=5)
 
 # --- Action Buttons ---
 btn_col1, btn_col2 = st.columns(2)
@@ -190,6 +237,8 @@ if run_clicked:
     port_key = cache.portfolio_key(
         pred_key, K, vol_tilt, regime_lookback,
         strategy_key, K_short, construction_method, tc_bps=tc_bps,
+        cost_bps=cost_bps, max_ivol_xs=max_ivol_xs,
+        max_per_sector=max_per_sector,
     )
     portfolio = cache.get_portfolio(port_key)
 
@@ -199,6 +248,9 @@ if run_clicked:
             K=K, strategy_type=strategy_key, K_short=K_short,
             vol_tilt=vol_tilt, regime_lookback=regime_lookback,
             market_monthly=market_monthly, tc_bps=tc_bps,
+            returns_history=st.session_state.get("returns_history"),
+            cost_bps=cost_bps, max_ivol_xs=max_ivol_xs,
+            max_per_sector=max_per_sector,
         )
         cache.save_portfolio(port_key, portfolio)
 
@@ -211,6 +263,8 @@ if run_clicked:
         "strategy_type": strategy_key, "construction_method": construction_method,
         "features": available_features, "window_type": window_type,
         "oos_start": oos_start, "rolling_window": rolling_window,
+        "cost_bps": cost_bps, "max_ivol_xs": max_ivol_xs,
+        "max_per_sector": max_per_sector,
     }
     st.success("Backtest complete!")
     render_next_steps("model")

@@ -182,7 +182,51 @@ def compute_fundamental_features(
 
             all_rows.append(row)
 
-    return pd.DataFrame(all_rows)
+    return _carry_between_filings(pd.DataFrame(all_rows))
+
+
+# A quarterly filer publishes every three months, so a filing is the newest
+# public figure for at most that long before the next one is due.
+_FILING_CADENCE_MONTHS = 3
+
+
+def _carry_between_filings(rows: pd.DataFrame) -> pd.DataFrame:
+    """Repeat each filing over the months it stays the latest public figure.
+
+    Each quarter is stamped to a single month (quarter-end + the reporting
+    lag), so two months in every three carried no fundamentals at all. The
+    backtest fills missing features with 0.0, which for a cross-sectionally
+    standardized column reads as "exactly average" — so bm, ep, roe and the
+    rest were fabricated for two months out of three rather than absent.
+
+    A filing does not stop being the newest public information the month after
+    it lands. Carry it until the next filing supersedes it, and no longer than
+    ``_FILING_CADENCE_MONTHS`` so a company that stops filing stops reporting
+    instead of holding stale figures forever.
+
+    This uses no future data: month t repeats the last filing published at or
+    before t.
+    """
+    if rows.empty:
+        return rows
+
+    def _month_no(ym: str) -> int:
+        y, m = ym.split("-")
+        return int(y) * 12 + int(m) - 1
+
+    out = []
+    for _, group in rows.groupby("ticker", sort=False):
+        group = group.sort_values("ym")
+        published = [_month_no(v) for v in group["ym"]]
+        # Each filing runs until the next one, the last for a full cadence.
+        expires = published[1:] + [published[-1] + _FILING_CADENCE_MONTHS]
+        for (_, row), start, end in zip(group.iterrows(), published, expires):
+            for n in range(min(end - start, _FILING_CADENCE_MONTHS)):
+                carried = row.copy()
+                carried["ym"] = f"{(start + n) // 12}-{(start + n) % 12 + 1:02d}"
+                out.append(carried)
+
+    return pd.DataFrame(out).reset_index(drop=True)
 
 
 def _safe_get(data: dict, field: str, idx: int):

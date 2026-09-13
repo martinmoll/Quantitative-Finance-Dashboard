@@ -486,3 +486,198 @@ def signal_staleness(
         "below_threshold": below,
         "stale": stale,
     })
+
+
+def survivorship_premium(
+    panel: pd.DataFrame, start: str | None = None,
+) -> dict:
+    """Return earned by simply holding every name in the panel, vs the market.
+
+    The universe is *today's* index constituents projected backwards, so the
+    panel never contains the companies that were dropped, acquired or went
+    bankrupt. Holding all of them earns a return no investor could have earned
+    at the time, because the losers were never on the list to pick from.
+
+    The gap this reports is a **floor** on the bias, not a point estimate. It
+    understates the true effect, because the surviving names also dominate the
+    training data.
+    """
+    df = panel if start is None else panel[panel["ym"] >= start]
+    uni = df.groupby("ym")["y_raw"].mean().dropna()
+    if len(uni) < 12 or "spy_ret" not in df.columns:
+        return {}
+    bench = df.groupby("ym")["spy_ret"].first().reindex(uni.index).dropna()
+    uni = uni.reindex(bench.index)
+
+    counts = df.groupby("ym").size()
+    return {
+        "panel_ann": float(uni.mean() * 12),
+        "bench_ann": float(bench.mean() * 12),
+        "gap_ann": float((uni.mean() - bench.mean()) * 12),
+        "n_months": int(len(uni)),
+        "names_first": int(counts.iloc[0]),
+        "names_last": int(counts.iloc[-1]),
+    }
+
+
+def return_by_vol_decile(
+    panel: pd.DataFrame,
+    holdings: dict[str, pd.DataFrame] | None = None,
+    vol_col: str = "vol_12m_xs",
+    start: str | None = None,
+) -> pd.DataFrame:
+    """Universe forward return by volatility decile, and where the book sits.
+
+    This is the survivorship signature. In a point-in-time universe the highest
+    volatility decile should **not** reliably outperform: those are the names
+    that blow up, and the ones that did are missing here. A top decile that
+    beats the bottom by a wide margin is measuring the survivor filter, not a
+    volatility premium.
+
+    Deciles are formed within each month, so the split is cross-sectional and
+    carries no look-ahead.
+    """
+    df = panel if start is None else panel[panel["ym"] >= start]
+    df = df[[c for c in ("ym", "permno", vol_col, "y_raw") if c in df.columns]].dropna()
+    if len(df) < 100 or vol_col not in df.columns:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df["decile"] = df.groupby("ym")[vol_col].transform(
+        lambda x: pd.qcut(x.rank(method="first"), 10, labels=False, duplicates="drop")
+        if len(x) >= 10 else np.nan
+    )
+    df = df.dropna(subset=["decile"])
+
+    out = df.groupby("decile").agg(
+        ann_return=("y_raw", lambda s: s.mean() * 12),
+        n_obs=("y_raw", "size"),
+    )
+    out.index = out.index.astype(int) + 1
+    out.index.name = "vol_decile"
+
+    if holdings:
+        held = pd.concat(
+            [h[["permno"]].assign(ym=m) for m, h in holdings.items()],
+            ignore_index=True,
+        )
+        lookup = df.set_index(["ym", "permno"])["decile"]
+        held["decile"] = lookup.reindex(
+            pd.MultiIndex.from_arrays([held["ym"], held["permno"]])
+        ).values
+        counts = held["decile"].value_counts(normalize=True)
+        counts.index = counts.index.astype(int) + 1
+        out["share_of_book"] = counts.reindex(out.index).fillna(0.0)
+
+    return out
+
+
+def effective_bets(
+    holdings: dict[str, pd.DataFrame],
+    returns_history: pd.DataFrame | None,
+    window: int | None = 60,
+    min_names: int = 3,
+    min_obs: int = 12,
+    weighted: bool = False,
+) -> pd.Series:
+    """Effective number of independent bets in the book, month by month.
+
+        N_eff = (mean asset vol / portfolio vol)^2
+
+    ``n`` identical uncorrelated names reads ``n``; ``n`` names that move as one
+    reads 1. It measures what the position count cannot: thirty names loading on
+    one factor is one bet, and the position count reports thirty.
+
+    This is the metric that flagged July 2026 in advance. The book decided at
+    2026-06 read 1.73 effective bets against a median of 2.41 — the 2nd
+    percentile of its own history — and went on to lose 30.8% gross while the
+    market rose 1.4%.
+
+    Read it as a **verification** instrument, not a forecast. Under a sector cap
+    of 4 the same book reads 2.72, the 65th percentile, and the correlation with
+    next-month return collapses from +0.20 to +0.04, because the constraint has
+    already removed the exposure this was detecting. A low reading under an
+    active cap means the book has found a way to concentrate that the cap does
+    not catch.
+
+    Estimated on the point-in-time covariance — only returns realized up to and
+    including month ``m`` — so the reading is available *at* the decision.
+    ``window`` bounds the estimation history in months; ``None`` is expanding.
+
+    ``weighted=True`` swaps the unweighted mean asset vol for the weight-average
+    (the Choueifaty diversification ratio, squared). The two agree exactly under
+    equal weights and diverge for ``inverse_vol``, ``erc`` and ``mvo``. The
+    unweighted form is the default because it is the one that was measured
+    against realized outcomes.
+
+    Weights are normalized to gross exposure first. The unweighted form is not
+    scale-free — only the denominator moves with the weight scale — so it is
+    well defined for a long-only book solely because those weights sum to 1.
+    Normalizing is an exact no-op there, and is what makes a long-short book,
+    whose weights sum to about zero, comparable at all.
+
+    Names without a full ``window`` of history are dropped from the estimate
+    rather than truncating the window for everyone, so the reading covers the
+    part of the book that can be measured. NaN for a month left with fewer than
+    ``min_names`` such names, fewer than ``min_obs`` observations, or a
+    non-positive portfolio variance. Empty Series when there is no history at all. Note this
+    deliberately does **not** reuse ``portfolio._get_cov_matrix``: its identity
+    fallback would make N_eff equal the position count exactly, which is the
+    most reassuring answer available and would be manufactured from no data.
+    """
+    if returns_history is None or len(returns_history) == 0 or not holdings:
+        return pd.Series(dtype=float)
+
+    out: dict[str, float] = {}
+    for m in sorted(holdings):
+        held = holdings[m]
+        if held is None or not {"permno", "weight"} <= set(held.columns):
+            out[m] = np.nan
+            continue
+
+        # Summed per permno so a name held on both legs nets out.
+        w_all = held[["permno", "weight"]].dropna().groupby("permno")["weight"].sum()
+        names = [p for p in w_all.index if p in returns_history.columns]
+        if len(names) < min_names:
+            out[m] = np.nan
+            continue
+
+        hist = returns_history.loc[returns_history.index <= m, names]
+        if window:
+            hist = hist.tail(int(window))
+
+        # Drop short-history *names*, then take a pairwise covariance. Row-wise
+        # dropna — what _get_cov_matrix does — lets one recent listing truncate
+        # the sample for every other name, and that blanks exactly the months
+        # this is meant to flag: the 2026-06 book held SNDK with 8 observations
+        # against 57 for the rest, and the whole month read NaN.
+        hist = hist.loc[:, hist.notna().sum() >= min_obs]
+        if hist.shape[1] < min_names:
+            out[m] = np.nan
+            continue
+        cov_df = hist.cov(min_periods=min_obs)
+        # A pair that still overlaps too little leaves a NaN cell; drop those.
+        cov_df = cov_df.loc[cov_df.notna().all(), cov_df.notna().all()]
+        if cov_df.shape[1] < min_names or cov_df.isna().to_numpy().any():
+            out[m] = np.nan
+            continue
+
+        names = list(cov_df.columns)
+        w = w_all.loc[names].to_numpy(dtype=float)
+        gross = np.abs(w).sum()
+        if gross <= 0:
+            out[m] = np.nan
+            continue
+        w = w / gross
+
+        cov = cov_df.to_numpy(dtype=float)
+        port_var = float(w @ cov @ w)
+        asset_vol = np.sqrt(np.clip(np.diag(cov), 0.0, None))
+        mean_vol = float(np.abs(w) @ asset_vol) if weighted else float(asset_vol.mean())
+
+        if not np.isfinite(port_var) or port_var <= 0 or mean_vol <= 0:
+            out[m] = np.nan
+            continue
+        out[m] = (mean_vol / np.sqrt(port_var)) ** 2
+
+    return pd.Series(out).sort_index()

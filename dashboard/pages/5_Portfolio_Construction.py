@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from core.portfolio import build_portfolio_series
 from core.data_loader import permno_ticker_map
-from core.diagnostics import compute_performance_metrics
+from core.diagnostics import compute_performance_metrics, effective_bets
 from core.risk import (
     risk_contribution, factor_exposure, factor_alpha, rolling_factor_exposure,
     transaction_cost_drag, capacity_curve,
@@ -81,6 +81,12 @@ for m in selected_methods:
         K=params["K"], strategy_type=params["strategy_type"],
         K_short=params["K_short"], vol_tilt=params["vol_tilt"],
         regime_lookback=params["regime_lookback"], market_monthly=market,
+        returns_history=st.session_state.get("returns_history"),
+        # Without these the tab compares a differently-constructed book against
+        # the main result: uncapped and at the default cost.
+        max_ivol_xs=params.get("max_ivol_xs"),
+        max_per_sector=params.get("max_per_sector"),
+        cost_bps=params.get("cost_bps", 10.0),
     )
     method_results[m] = port
 
@@ -102,9 +108,20 @@ with tab_alloc:
         eff_n = 1.0 / (weight_col ** 2).sum() if len(weight_col) > 0 and weight_col.sum() > 0 else 0
         top10_w = weight_col.abs().nlargest(10).sum() if len(weight_col) > 0 else 0
 
+        # Effective N counts weight spread only: at equal weight it reads K no
+        # matter how correlated the names are. Effective Bets prices the same
+        # book through its covariance, so the gap between the two cards is the
+        # concentration the position count cannot see.
+        _enb = effective_bets(holdings, st.session_state.get("returns_history"))
+        _enb_last = _enb.get(last_month, float("nan")) if len(_enb) else float("nan")
+
         alloc_cards = [
             {"label": "Positions", "value": str(n_pos), "accent": C["primary"], "variant": "bar"},
             {"label": "Effective N", "value": f"{eff_n:.1f}", "accent": C["primary"], "variant": "bar"},
+            {"label": "Effective Bets",
+             "value": "n/a" if pd.isna(_enb_last) else f"{_enb_last:.1f}",
+             "accent": C["warning"] if (not pd.isna(_enb_last) and _enb_last < 0.4 * n_pos)
+                       else C["primary"], "variant": "bar"},
             {"label": "Top-10 Weight", "value": f"{top10_w:.1%}", "accent": C["warning"] if top10_w > 0.6 else C["primary"], "variant": "bar"},
         ]
         if params.get("strategy_type") == "long_short" and "side" in held.columns:
@@ -338,9 +355,13 @@ with tab_costs:
         st.plotly_chart(fig, use_container_width=True)
     with tc_col2:
         cost_bps = st.number_input("Cost per trade (bps)", value=10.0, step=5.0, key="tc_bps_port")
-        ann_vol = result["monthly_returns"].std() * np.sqrt(12)
+        # Base this on the GROSS series. result["monthly_returns"] is already
+        # net of the backtest's own cost assumption, so using it here would
+        # charge the book twice.
+        _gross = result.get("monthly_returns_gross", result["monthly_returns"])
+        ann_vol = _gross.std() * np.sqrt(12)
         tc = transaction_cost_drag(result["turnover"], cost_bps, ann_vol)
-        perf_cost = compute_performance_metrics(result["monthly_returns"])
+        perf_cost = compute_performance_metrics(_gross)
         gross_sr = perf_cost["SR"]
         net_sr = gross_sr - tc["Cost_SR"]
         metric_card_row([
