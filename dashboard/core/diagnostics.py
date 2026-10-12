@@ -438,7 +438,7 @@ def probability_of_backtest_overfitting(
 
     ``returns_matrix`` is months × configs. Time is split into ``n_splits``
     blocks; over every symmetric in-sample / out-of-sample partition, we check
-    how often the in-sample-best config lands *below* the out-of-sample median —
+    how often the in-sample-best config lands *at or below* the out-of-sample median —
     i.e. how often picking the backtest winner would disappoint live. Returns a
     probability in [0, 1] (>0.5 signals selection is likely overfitting), or NaN
     if there aren't enough configs / history.
@@ -464,7 +464,9 @@ def probability_of_backtest_overfitting(
         best = int(np.nanargmax(is_sr))
         rank = int(np.sum(oos_sr <= oos_sr[best]))  # 1..N (N = OOS-best)
         omega = rank / (N + 1)
-        if np.log(omega / (1 - omega)) < 0:  # in-sample winner below OOS median
+        # At or below the OOS median. With an odd N the winner can land exactly
+        # on the median (lambda = 0); Bailey et al. count that as overfit.
+        if np.log(omega / (1 - omega)) <= 0:
             overfit += 1
         total += 1
 
