@@ -101,17 +101,23 @@ def component_var(
 def rolling_var(
     returns: pd.Series, window: int = 24, confidence: float = 0.95,
 ) -> pd.DataFrame:
-    """Compute rolling parametric and historical VaR over a sliding window."""
+    """Compute rolling parametric and historical VaR over a sliding window.
+
+    Each VaR is placed on the month it predicts: the value on month ``i`` is
+    estimated from the ``window`` months before it, as in ``var_backtest``. The
+    window never includes the month it is compared with, so a large loss cannot
+    widen its own VaR and hide the breach.
+    """
     param_vars = []
     hist_vars = []
     idx = []
-    for i in range(window, len(returns) + 1):
+    for i in range(window, len(returns)):
         chunk = returns.iloc[i - window:i]
         pv = parametric_var(chunk, confidence)
         hv = historical_var(chunk, confidence)
         param_vars.append(pv["VaR"])
         hist_vars.append(hv["VaR"])
-        idx.append(returns.index[i - 1])
+        idx.append(returns.index[i])
     return pd.DataFrame(
         {"Parametric": param_vars, "Historical": hist_vars}, index=idx,
     )
