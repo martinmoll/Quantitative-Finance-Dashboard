@@ -102,8 +102,16 @@ def _card_head(title, sub=None):
 
 
 def _plot(fig, key):
-    """Plot with the Ledger template. theme=None stops Streamlit restyling it."""
-    fig.update_layout(template="ledger")
+    """Plot with the Ledger template.
+
+    Even with theme=None, the Streamlit frontend writes the config.toml colors
+    into the layout's backgrounds and font when the figure leaves them unset.
+    Those win over the template, so they are set here explicitly.
+    """
+    fig.update_layout(
+        template="ledger", paper_bgcolor=L["surface"], plot_bgcolor=L["surface"],
+        font=dict(family="DM Mono, monospace", size=11, color=L["text_secondary"]),
+    )
     st.plotly_chart(fig, use_container_width=True, theme=None, key=key)
 
 

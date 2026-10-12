@@ -152,6 +152,13 @@ _LEDGER_CSS = f"""
 [data-testid="stMain"] [data-baseweb="tab-list"] button[aria-selected="true"] p {{ color: {LEDGER["text"]}; font-weight: 600; }}
 [data-testid="stMain"] [data-baseweb="tab-highlight"] {{ background-color: {LEDGER["text"]}; }}
 [data-testid="stMain"] [data-baseweb="tab-border"] {{ background-color: {LEDGER["hairline"]}; }}
+[data-testid="stMain"] [data-testid="stBaseButton-segmented_control"] {{
+    background: {LEDGER["surface"]}; border-color: {LEDGER["hairline"]}; color: {LEDGER["text_secondary"]};
+}}
+[data-testid="stMain"] [data-testid="stBaseButton-segmented_controlActive"] {{
+    background: #EEF1FC; border-color: {LEDGER["primary"]}; color: {LEDGER["primary"]};
+}}
+[data-testid="stMain"] [data-testid^="stBaseButton-segmented_control"] p {{ color: inherit; }}
 [data-testid="stMain"] [class*="st-key-ledger-card"] {{
     background: {LEDGER["surface"]}; border: 1px solid {LEDGER["hairline"]};
     border-radius: 4px; padding: 20px 22px;
