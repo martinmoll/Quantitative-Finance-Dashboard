@@ -202,6 +202,46 @@ def test_bootstrap_alpha_ci(sample_returns, sample_ff5):
     assert result["lo"] < result["hi"]
 
 
+def _ar1(n, phi, seed):
+    rng = np.random.RandomState(seed)
+    e = rng.randn(n) * 0.04
+    x = np.zeros(n)
+    for t in range(1, n):
+        x[t] = phi * x[t - 1] + e[t]
+    return x
+
+
+def test_bootstrap_sharpe_ci_widens_for_autocorrelated_returns():
+    """A shuffled copy holds the same values without the autocorrelation. An iid
+    bootstrap cannot tell the two apart (width ratio ~1.0). A block bootstrap
+    keeps runs of months together, so the autocorrelated CI must be wider."""
+    x = _ar1(120, 0.6, seed=0) + 0.01
+    shuffled = np.random.RandomState(99).permutation(x)
+
+    def width(s):
+        r = bootstrap_sharpe_ci(pd.Series(s), n_boot=2000)
+        return r["hi"] - r["lo"]
+
+    assert width(x) > 1.25 * width(shuffled)
+
+
+def test_bootstrap_alpha_ci_widens_for_autocorrelated_residuals(sample_ff5):
+    """Same idea for the FF5 alpha: AR(1) residuals against the same rows shuffled
+    together (factors and returns), which removes only the autocorrelation."""
+    ff5 = sample_ff5
+    n = len(ff5)
+    y = 0.005 + ff5["RF"] + 1.0 * ff5["Mkt-RF"] + _ar1(n, 0.6, seed=0)
+    perm = np.random.RandomState(99).permutation(n)
+    ff5_sh = ff5.iloc[perm].set_axis(ff5.index)
+    y_sh = y.iloc[perm].set_axis(y.index)
+
+    def width(rets, factors):
+        r = bootstrap_alpha_ci(rets, factors, n_boot=2000)
+        return r["hi"] - r["lo"]
+
+    assert width(y, ff5) > 1.25 * width(y_sh, ff5_sh)
+
+
 def test_bootstrap_alpha_ci_insufficient_data(sample_ff5):
     short = pd.Series([0.01] * 5, index=sample_ff5.index[:5])
     result = bootstrap_alpha_ci(short, sample_ff5, n_boot=100)

@@ -284,13 +284,28 @@ def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
     return 1.0 - ss_res / ss_tot
 
 
+def _block_indices(n: int, block_len: int, rng: np.random.Generator) -> np.ndarray:
+    """Row indices for one moving-block bootstrap resample (Künsch 1989).
+
+    Draws random starts, takes ``block_len`` consecutive months from each, and
+    cuts the result to ``n``. Keeping months together preserves the
+    autocorrelation an iid resample destroys; iid makes the CI too narrow when
+    returns are autocorrelated. The block is capped at ``n // 2`` so a short
+    series still has several distinct starts.
+    """
+    b = max(1, min(block_len, n // 2))
+    starts = rng.integers(0, n - b + 1, size=-(-n // b))
+    return (starts[:, None] + np.arange(b)).ravel()[:n]
+
+
 def bootstrap_sharpe_ci(
     returns: pd.Series,
     n_boot: int = 5000,
     ci: float = 0.95,
     seed: int = 42,
+    block_len: int = 6,
 ) -> dict:
-    """Bootstrap confidence interval for the annualized Sharpe ratio."""
+    """Moving-block bootstrap confidence interval for the annualized Sharpe ratio."""
     s = returns.dropna().values
     if len(s) < 6:
         return {"point": np.nan, "lo": np.nan, "hi": np.nan, "ci": ci}
@@ -300,7 +315,7 @@ def bootstrap_sharpe_ci(
     boot_srs = np.empty(n_boot)
 
     for i in range(n_boot):
-        sample = rng.choice(s, size=n, replace=True)
+        sample = s[_block_indices(n, block_len, rng)]
         mu = sample.mean() * 12
         sigma = sample.std(ddof=1) * np.sqrt(12)
         boot_srs[i] = mu / sigma if sigma > 0 else np.nan
@@ -318,8 +333,13 @@ def bootstrap_alpha_ci(
     n_boot: int = 5000,
     ci: float = 0.95,
     seed: int = 42,
+    block_len: int = 6,
 ) -> dict:
-    """Bootstrap confidence interval for annualized FF5 alpha."""
+    """Moving-block bootstrap confidence interval for annualized FF5 alpha.
+
+    Resamples (return, factors) rows together, in blocks of ``block_len``
+    months, so autocorrelated residuals widen the CI as they should.
+    """
     from core.risk import _ff5_available
     available = _ff5_available(ff5_factors)
     common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
@@ -337,7 +357,7 @@ def bootstrap_alpha_ci(
     boot_alphas = np.empty(n_boot)
 
     for i in range(n_boot):
-        idx = rng.choice(n, size=n, replace=True)
+        idx = _block_indices(n, block_len, rng)
         y_b = y_excess[idx]
         X_b = X_const[idx]
         try:
