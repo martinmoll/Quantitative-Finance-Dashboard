@@ -192,6 +192,17 @@ def test_var_backtest_breach_rate_bounded():
     assert 0 <= result["breach_rate"] <= 1.0
 
 
+def test_var_backtest_kupiec_zero_breaches_is_not_automatic_reject():
+    """Zero breaches still has a likelihood: LR = -2 T ln(1 - p). At 99% over
+    96 months that is p ~ 0.165, so the test must not reject. A correct model
+    has zero breaches here 38% of the time (0.99 ** 96)."""
+    rets = pd.Series([0.02, 0.0] * 60)  # 99% VaR ~ -1.4%, never breached
+    result = var_backtest(rets, window=24, confidence=0.99)
+    assert result["breaches"] == 0
+    assert result["total"] == 96
+    assert abs(result["kupiec_p"] - 0.1648) < 1e-3
+
+
 # ── Factor Alpha ────────────────────────────────────────────────────────
 
 
