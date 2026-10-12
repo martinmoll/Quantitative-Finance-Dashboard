@@ -167,7 +167,20 @@ def test_rolling_var_shape():
     assert isinstance(result, pd.DataFrame)
     assert "Parametric" in result.columns
     assert "Historical" in result.columns
-    assert len(result) == len(rets) - window + 1
+    assert len(result) == len(rets) - window  # one VaR per month it predicts
+
+
+def test_rolling_var_breaches_match_var_backtest():
+    """The VaR on each date must be estimated from earlier months only, as in
+    var_backtest. If the window includes the month it is compared with, a large
+    loss widens its own VaR and the chart hides that breach."""
+    rets = _make_returns(n=120)
+    roll = rolling_var(rets, window=24, confidence=0.95)
+    # Same breach rule as the Rolling VaR chart on the VaR page.
+    chart = list(roll.index[(-rets.loc[roll.index]) > roll["Parametric"]])
+    expected = var_backtest(rets, window=24, confidence=0.95)["breach_dates"]
+    assert len(expected) > 0
+    assert chart == expected
 
 
 # ── VaR Backtest (Kupiec) ──────────────────────────────────────────────
