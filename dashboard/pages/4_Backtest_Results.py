@@ -335,7 +335,7 @@ with tab_overview:
             "label": "Deflated Sharpe",
             "value": f"{dsr:.0%}" if not np.isnan(dsr) else "N/A",
             "accent": C["positive"] if (not np.isnan(dsr) and dsr > 0.95) else C["warning"],
-            "variant": "bar", "delta": f"deflated for {dsr_res['n_trials']} trials",
+            "variant": "bar", "delta": f"deflated for at least {dsr_res['n_trials']} trials",
             "delta_color": C["text_secondary"],
         })
     metric_card_row(psr_cards)
