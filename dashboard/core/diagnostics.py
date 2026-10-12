@@ -445,6 +445,25 @@ def deflated_sharpe_ratio(returns: pd.Series, trial_sharpes) -> dict:
     }
 
 
+def trial_sharpes(returns_list, fx_ret: pd.Series | None = None) -> list[float]:
+    """Per-period Sharpe of each trial, for ``deflated_sharpe_ratio``.
+
+    The trials must be in the same currency as the tested series. When the page
+    reports in NOK, pass the same ``fx_ret`` so each trial is converted the
+    same way. Trials with zero volatility are skipped.
+    """
+    from core.currency import to_nok_unhedged
+
+    out = []
+    for r in returns_list:
+        r = r.dropna()
+        if fx_ret is not None:
+            r = to_nok_unhedged(r, fx_ret)
+        if r.std() > 0:
+            out.append(r.mean() / r.std())
+    return out
+
+
 def _col_sharpe(a: np.ndarray) -> np.ndarray:
     mu = a.mean(axis=0)
     sd = a.std(axis=0, ddof=1)

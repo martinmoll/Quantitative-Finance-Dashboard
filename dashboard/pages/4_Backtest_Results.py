@@ -9,7 +9,7 @@ from core.diagnostics import (
     compute_r2_oos, bootstrap_sharpe_ci, bootstrap_alpha_ci, multiple_testing_hurdle,
     probabilistic_sharpe_ratio, deflated_sharpe_ratio,
     probability_of_backtest_overfitting, survivorship_premium,
-    return_by_vol_decile, effective_bets,
+    return_by_vol_decile, effective_bets, trial_sharpes,
 )
 from core.risk import factor_alpha
 from components.charts import (
@@ -323,12 +323,11 @@ with tab_overview:
         "variant": "bar", "delta": "P(true Sharpe > 0)", "delta_color": C["text_secondary"],
     }]
     if pinned:
-        trial_srs = []
-        for cfg in [current_config] + list(pinned):
-            cr = cfg["result"]["monthly_returns"]
-            cr = cr[cr.index >= display_start].dropna()
-            if cr.std() > 0:
-                trial_srs.append(cr.mean() / cr.std())
+        trial_srs = trial_sharpes(
+            [cfg["result"]["monthly_returns"].loc[lambda s: s.index >= display_start]
+             for cfg in [current_config] + list(pinned)],
+            fx_ret=fx_ret,
+        )
         dsr_res = deflated_sharpe_ratio(rets, trial_srs)
         dsr = dsr_res["dsr"]
         psr_cards.append({
