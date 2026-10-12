@@ -159,6 +159,26 @@ _LEDGER_CSS = f"""
     background: #EEF1FC; border-color: {LEDGER["primary"]}; color: {LEDGER["primary"]};
 }}
 [data-testid="stMain"] [data-testid^="stBaseButton-segmented_control"] p {{ color: inherit; }}
+[data-testid="stMain"] [data-baseweb="input"],
+[data-testid="stMain"] [data-baseweb="base-input"],
+[data-testid="stMain"] [data-baseweb="select"] > div,
+[data-testid="stMain"] [data-testid="stNumberInputContainer"] {{
+    background: {LEDGER["surface"]}; border-color: {LEDGER["hairline"]};
+}}
+[data-testid="stMain"] [data-baseweb="input"] input,
+[data-testid="stMain"] [data-baseweb="select"] div,
+[data-testid="stMain"] [data-baseweb="select"] input {{ color: {LEDGER["text"]}; }}
+[data-testid="stMain"] [data-baseweb="select"] svg {{ color: {LEDGER["text_secondary"]}; fill: {LEDGER["text_secondary"]}; }}
+[data-testid="stMain"] :is([data-testid="stNumberInputStepDown"], [data-testid="stNumberInputStepUp"]) {{
+    background: {LEDGER["surface"]}; color: {LEDGER["text"]}; border-color: {LEDGER["hairline"]};
+}}
+[data-testid="stMain"] [data-testid="stTable"] > div {{ background: {LEDGER["surface"]}; border-color: {LEDGER["hairline"]}; }}
+[data-testid="stMain"] [data-testid="stTableStyledTable"] {{ color: {LEDGER["text"]}; font-family: {LEDGER_MONO}; }}
+[data-testid="stMain"] [data-testid="stTableStyledTable"] :is(th, td) {{ border-color: {LEDGER["hairline"]}; }}
+[data-testid="stMain"] [data-testid="stTableStyledTable"] th,
+[data-testid="stMain"] [data-testid="stTableStyledTable"] th [data-testid="stMarkdownContainer"] {{
+    color: {LEDGER["text_secondary"]}; font-family: {LEDGER_SANS};
+}}
 [data-testid="stMain"] [class*="st-key-ledger-card"] {{
     background: {LEDGER["surface"]}; border: 1px solid {LEDGER["hairline"]};
     border-radius: 4px; padding: 20px 22px;

@@ -17,7 +17,6 @@ from core.risk import factor_alpha
 from components.charts import (
     cumulative_wealth_chart, drawdown_chart, monthly_heatmap, bar_chart,
 )
-from components.metrics import comparison_table
 from components.theory import theory_section
 from components.interpretations import (
     interpret_sharpe, interpret_max_drawdown,
@@ -134,6 +133,27 @@ def _workflow_steps(current_stage):
         f'padding:10px 0 14px;margin-bottom:8px;">{"".join(parts)}</nav>',
         unsafe_allow_html=True,
     )
+
+
+# Same formats as components.metrics.comparison_table.
+_COMPARE_FMT = {
+    "SR": "{:.2f}", "Ann Return": "{:.1%}", "Ann Vol": "{:.1%}", "MDD": "{:.1%}",
+    "Calmar": "{:.2f}", "Total Return": "{:.0%}", "Mean IC": "{:.4f}",
+    "Mean Turnover": "{:.1%}", "TC Drag": "{:.2%}", "Net SR": "{:.2f}",
+}
+
+
+def _table(df, formats=None):
+    """HTML table that Ledger CSS can style.
+
+    st.dataframe draws its cells on a canvas with the app-wide theme, which
+    page CSS cannot reach. The trade-off: no sorting, search or download.
+    """
+    df = df.copy()
+    for col, fmt in (formats or {}).items():
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: fmt.format(x) if pd.notna(x) else "-")
+    st.table(df)
 
 
 def _card_head(title, sub=None):
@@ -307,13 +327,13 @@ if _panel is not None:
                 _show["ann_return"] = (_show["ann_return"] * 100).round(1)
                 if "share_of_book" in _show.columns:
                     _show["share_of_book"] = (_show["share_of_book"] * 100).round(1)
-                st.dataframe(
+                _table(
                     _show.rename(columns={
                         "ann_return": "Universe return %/yr",
                         "n_obs": "Observations",
                         "share_of_book": "Share of book %",
                     }),
-                    use_container_width=True,
+                    {"Universe return %/yr": "{:.1f}", "Share of book %": "{:.1f}"},
                 )
                 _spread = (_dec["ann_return"].iloc[-1] - _dec["ann_return"].iloc[0]) * 100
                 st.caption(f"Top decile minus bottom: **{_spread:.1f}** pct pts/yr.")
@@ -844,7 +864,7 @@ with tab_compare:
             p_perf["Mean Turnover"] = p["result"]["turnover"].dropna().mean()
             configs.append(p_perf)
 
-        comparison_table(configs)
+        _table(pd.DataFrame(configs).set_index("Strategy"), _COMPARE_FMT)
 
         # --- Probability of Backtest Overfitting (CSCV) ---
         ret_cols = {}

@@ -69,3 +69,17 @@ def test_sharpe_banner_renders_bold_not_literal_asterisks():
     banner = next(m.value for m in at.markdown if "Sharpe Ratio =" in m.value)
     assert "**" not in banner
     assert "<b>Sharpe Ratio =" in banner
+
+
+def test_compare_table_is_html_with_formatted_values():
+    """The dataframe grid draws on a canvas that page CSS cannot style, so the
+    Ledger page shows the Compare table as an HTML table. Formats must survive."""
+    gross = pd.Series(np.random.default_rng(0).normal(0.01, 0.04, len(MONTHS)), index=MONTHS)
+    pin = {"label": "Pin 15 bps", "result": _result(gross, 15.0), "params": {}}
+    at = _page(_result(gross, 10.0), pinned=[pin])
+
+    assert not at.exception, at.exception
+    assert len(at.dataframe) == 0
+    compare = at.table[0].value
+    assert list(compare.index) == ["Current Run", "Pin 15 bps"]
+    assert compare.loc["Current Run", "Ann Return"].endswith("%")
