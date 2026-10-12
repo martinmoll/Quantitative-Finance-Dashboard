@@ -434,9 +434,9 @@ def net_returns_at_cost(gross: pd.Series, turnover: pd.Series, cost_bps: float) 
     """Restate gross monthly returns net of a one-way cost of ``cost_bps``.
 
     Uses the same rule as ``build_portfolio_series``. The cost is the notional
-    traded (two times one-way turnover) times ``cost_bps``. The first month has
-    NaN turnover but builds the book from cash, so it is charged as a full
-    turnover of 1.0. No other month has NaN turnover.
+    traded (two times one-way turnover) times ``cost_bps``. A month with NaN
+    turnover builds the book from cash, so it is charged as a full turnover of
+    1.0. This is the first month, and the first month after a skipped month.
     """
     traded = turnover.reindex(gross.index).fillna(1.0)
     return gross - traded * cost_bps / 10_000 * 2

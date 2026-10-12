@@ -555,3 +555,23 @@ def test_net_returns_at_cost_reproduces_series(sample_predictions):
         net_returns_at_cost(gross, turnover, 25.0), out["monthly_returns"],
     )
     pd.testing.assert_series_equal(net_returns_at_cost(gross, turnover, 0.0), gross)
+
+
+def test_net_returns_at_cost_after_skipped_month_and_slice(sample_predictions):
+    """A month too thin to trade resets the book. The next month has NaN turnover
+    and is charged as a full build. A display slice that starts on that month,
+    or on an ordinary month, must still match the stored net series."""
+    preds = dict(sample_predictions)
+    preds["2015-05"] = preds["2015-05"].head(5)  # below 2 * K, so skipped
+    out = build_portfolio_series(
+        predictions=preds, method="equal_weight", K=10,
+        strategy_type="long_only", K_short=10, vol_tilt=0.0,
+        regime_lookback=0, cost_bps=25.0,
+    )
+    gross, turnover, net = out["monthly_returns_gross"], out["turnover"], out["monthly_returns"]
+    assert "2015-05" not in gross.index
+    assert np.isnan(turnover["2015-06"])
+    for start in ("2015-03", "2015-06", "2015-07"):
+        g = gross[gross.index >= start]
+        t = turnover[turnover.index >= start]
+        pd.testing.assert_series_equal(net_returns_at_cost(g, t, 25.0), net[net.index >= start])

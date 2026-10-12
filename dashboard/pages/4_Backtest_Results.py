@@ -387,9 +387,11 @@ with tab_overview:
     psr = probabilistic_sharpe_ratio(rets)
     mean_to = turnover.dropna().mean()
     kpi_cards = [
-        {"label": "Sharpe", "value": f"{perf['SR']:.2f}", "color": L["primary"],
+        {"label": "Sharpe", "value": f"{perf['SR']:.2f}",
+         "color": L["positive"] if perf["SR"] >= 1.0 else L["primary"] if perf["SR"] >= 0.5 else L["warning"],
          "sub": f"95% CI [{sr_ci['lo']:.2f}, {sr_ci['hi']:.2f}]" if not np.isnan(sr_ci["lo"]) else None},
         {"label": "Ann. Return", "value": f"{perf['Ann Return']:+.1%}",
+         "color": L["positive"] if perf["Ann Return"] > 0 else L["negative"],
          "sub": f"SPY {bench['Ann Return']:+.1%}" if bench else None},
     ]
     if bench:
@@ -401,7 +403,8 @@ with tab_overview:
          "sub": f"SPY {bench['Ann Vol']:.1%}" if bench else None},
         {"label": "Max DD", "value": f"{perf['MDD']:.1%}", "color": L["negative"],
          "sub": f"SPY {bench['MDD']:.1%}" if bench else None},
-        {"label": "Calmar", "value": f"{perf['Calmar']:.2f}" if not np.isnan(perf['Calmar']) else "N/A"},
+        {"label": "Calmar", "value": f"{perf['Calmar']:.2f}" if not np.isnan(perf['Calmar']) else "N/A",
+         "color": L["positive"] if perf["Calmar"] >= 1.0 else L["warning"]},
         {"label": "Turnover / yr", "value": f"{mean_to * 12:.0%}" if not np.isnan(mean_to) else "N/A",
          "sub": "one-way"},
     ]
@@ -518,15 +521,21 @@ with tab_overview:
 
                 base_bps = float(run_bps or 0.0)
                 levels = sorted({0.0, 5.0, 10.0, 20.0, 30.0, 50.0, base_bps})
+                # One key per config. Streamlit ignores a new default on a key it
+                # already holds, so a shared key would keep the last config's level.
                 chosen = st.segmented_control(
                     "Cost level", levels, default=base_bps,
-                    format_func=lambda b: f"{b:g} bps", key="cost_level",
+                    format_func=lambda b: f"{b:g} bps", key=f"cost_level_{active_idx}",
                     label_visibility="collapsed",
                 )
                 chosen = base_bps if chosen is None else chosen
                 srs = {b: _perf_at(b)["SR"] for b in levels}
                 gross_perf, chosen_perf = _perf_at(0.0), _perf_at(chosen)
                 top = max((v for v in srs.values() if not np.isnan(v)), default=np.nan)
+
+                def _num(v, fmt):
+                    # Zero volatility or an empty series gives a NaN Sharpe.
+                    return "N/A" if np.isnan(v) else format(v, fmt)
 
                 rows = ""
                 for b, v in srs.items():
@@ -539,7 +548,7 @@ with tab_overview:
                         f'<span style="height:8px;background:#F0F0EC;"><span style="display:block;height:100%;'
                         f'width:{width:.1f}%;background:{L["primary"] if sel else "#B9BCC4"};"></span></span>'
                         f'<span class="mono" style="font-size:13px;text-align:right;color:{L["text"]};">'
-                        f'{"N/A" if np.isnan(v) else f"{v:.2f}"}</span></div>'
+                        f'{_num(v, ".2f")}</span></div>'
                     )
                 # Break-even is the one-way cost that takes the mean gross return
                 # to zero. It is a property of the trades, so it is computed in
@@ -547,19 +556,21 @@ with tab_overview:
                 traded = turnover_usd.reindex(gross_usd.index).fillna(1.0)
                 g_mean = gross_usd.mean()
                 break_even = f"{g_mean / (2 * traded.mean()) * 1e4:.0f} bps" if g_mean > 0 else "none (gross ≤ 0)"
+                if fx_ret is not None:
+                    break_even += " (USD)"
                 drag = gross_perf["Ann Return"] - chosen_perf["Ann Return"]
                 st.markdown(
                     f'<div style="display:flex;align-items:baseline;gap:12px;margin:4px 0 8px;">'
                     f'<span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-.03em;'
-                    f'color:{L["primary"]};">{chosen_perf["SR"]:.2f}</span>'
+                    f'color:{L["primary"]};">{_num(chosen_perf["SR"], ".2f")}</span>'
                     f'<span class="mono" style="font-size:13px;color:{L["text_secondary"]};">'
-                    f'net · gross {gross_perf["SR"]:.2f}</span></div>'
+                    f'net · gross {_num(gross_perf["SR"], ".2f")}</span></div>'
                     f'<div style="display:flex;flex-direction:column;gap:2px;">{rows}</div>'
                     f'<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;'
                     f'background:{L["hairline"]};border:1px solid {L["hairline"]};margin-top:14px;">'
                     f'<div style="background:{L["surface"]};padding:12px 14px;">'
                     f'<div style="font-size:12px;color:{L["text_secondary"]};">Cost drag / yr</div>'
-                    f'<div class="mono" style="font-size:18px;color:{L["text"]};">{drag:.2%}</div></div>'
+                    f'<div class="mono" style="font-size:18px;color:{L["text"]};">{_num(drag, ".2%")}</div></div>'
                     f'<div style="background:{L["surface"]};padding:12px 14px;">'
                     f'<div style="font-size:12px;color:{L["text_secondary"]};">Break-even cost</div>'
                     f'<div class="mono" style="font-size:18px;color:{L["text"]};">{break_even}</div></div></div>',
