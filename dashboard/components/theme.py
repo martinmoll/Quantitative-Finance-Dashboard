@@ -179,6 +179,8 @@ _LEDGER_CSS = f"""
 [data-testid="stMain"] [data-testid="stTableStyledTable"] th [data-testid="stMarkdownContainer"] {{
     color: {LEDGER["text_secondary"]}; font-family: {LEDGER_SANS};
 }}
+[data-testid="stHeader"] [data-testid="stToolbar"],
+[data-testid="stHeader"] [data-testid="stToolbar"] * {{ color: {LEDGER["text_secondary"]}; }}
 [data-testid="stMain"] [class*="st-key-ledger-card"] {{
     background: {LEDGER["surface"]}; border: 1px solid {LEDGER["hairline"]};
     border-radius: 4px; padding: 20px 22px;

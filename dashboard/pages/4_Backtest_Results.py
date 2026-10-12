@@ -23,14 +23,13 @@ from components.interpretations import (
     interpret_ff5_alpha, interpret_r2_oos, interpret_turnover,
 )
 from components.workflow import STAGES, render_empty_state, render_next_steps, config_label
-from components.theme import inject_ledger_theme, LEDGER as L
+from components.theme import inject_theme, inject_ledger_theme, LEDGER as L
 from core.currency import to_nok_unhedged
 from core.data_loader import region_for_label
 from core.portfolio import net_returns_at_cost
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Backtest Results", layout="wide")
-inject_ledger_theme()
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +212,12 @@ def _heatmap(rets):
     fig.update_traces(colorscale=[[0.0, L["negative"]], [0.5, "#F7F7F5"], [1.0, L["primary"]]])
     return fig
 
+# The shared empty state has inline navy-theme colors, which fail contrast on
+# the Ledger canvas. Keep the navy theme until there is a result to show.
 if render_empty_state("results"):
+    inject_theme()
     st.stop()
+inject_ledger_theme()
 
 result = st.session_state.get("backtest_result")
 market = st.session_state.get("market_monthly")

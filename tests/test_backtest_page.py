@@ -83,3 +83,15 @@ def test_compare_table_is_html_with_formatted_values():
     compare = at.table[0].value
     assert list(compare.index) == ["Current Run", "Pin 15 bps"]
     assert compare.loc["Current Run", "Ann Return"].endswith("%")
+
+
+def test_empty_state_keeps_the_navy_theme():
+    """The shared empty state has inline navy-theme colors, which measure 1.6:1
+    on the Ledger canvas. Without a backtest the page must stay navy."""
+    at = AppTest.from_file(PAGE, default_timeout=120).run()
+
+    assert not at.exception, at.exception
+    css = " ".join(m.value for m in at.markdown)
+    assert "No Backtest Results Yet" in css
+    assert "background-color: #0B375D" in css
+    assert "Instrument+Sans" not in css
