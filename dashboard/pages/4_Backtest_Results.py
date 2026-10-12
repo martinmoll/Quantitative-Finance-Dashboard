@@ -1,6 +1,8 @@
 # dashboard/pages/4_Backtest_Results.py
 """Page 4: Backtest Results & Diagnostics — tabbed layout."""
 
+import re
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -48,8 +50,13 @@ _PIN_LINES = ["#5B2A86", "#0B6E4F", "#3B4048", "#8A5A00"]
 
 
 def _banner(kind, headline_html, detail=None):
-    """Ledger version of components.metrics.banner."""
+    """Ledger version of components.metrics.banner.
+
+    The headline goes inside raw HTML, where Streamlit does not parse
+    Markdown. Interpretation text marks bold with **, so convert it here.
+    """
     icon, accent = _BANNER.get(kind, _BANNER["info"])
+    headline_html = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", headline_html)
     st.markdown(
         f'<div style="background:{L["surface"]};border:1px solid {L["hairline"]};border-radius:4px;'
         f'padding:10px 14px;display:flex;align-items:center;gap:10px;margin:8px 0;">'

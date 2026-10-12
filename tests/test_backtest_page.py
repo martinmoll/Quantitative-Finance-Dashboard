@@ -57,3 +57,15 @@ def test_cost_panel_shows_na_for_undefined_sharpe():
 
     assert not at.exception, at.exception
     assert "nan" not in _cost_panel_html(at)
+
+
+def test_sharpe_banner_renders_bold_not_literal_asterisks():
+    """Interpretation text marks bold with **. The banner is raw HTML, where
+    Markdown is not parsed, so the markers must become <b> tags."""
+    gross = pd.Series(np.random.default_rng(0).normal(0.01, 0.04, len(MONTHS)), index=MONTHS)
+    at = _page(_result(gross, 10.0))
+
+    assert not at.exception, at.exception
+    banner = next(m.value for m in at.markdown if "Sharpe Ratio =" in m.value)
+    assert "**" not in banner
+    assert "<b>Sharpe Ratio =" in banner
