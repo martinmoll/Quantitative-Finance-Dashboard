@@ -21,7 +21,7 @@ from components.interpretations import (
     interpret_sharpe, interpret_max_drawdown,
     interpret_ff5_alpha, interpret_r2_oos, interpret_turnover,
 )
-from components.workflow import render_workflow_status, render_empty_state, render_next_steps, config_label
+from components.workflow import STAGES, render_empty_state, render_next_steps, config_label
 from components.theme import inject_ledger_theme, LEDGER as L
 from core.currency import to_nok_unhedged
 from core.data_loader import region_for_label
@@ -88,6 +88,43 @@ def _kpi_grid(cards):
     st.markdown(
         f'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;'
         f'background:{L["hairline"]};border:1px solid {L["hairline"]};margin:4px 0 8px;">{tiles}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _workflow_steps(current_stage):
+    """Ledger version of components.workflow.render_workflow_status.
+
+    Same stages and completion checks. Only the colors change, because the
+    navy-theme colors fail 4.5:1 contrast on the light background.
+    """
+    done = [s["complete_check"]() for s in STAGES]
+    parts = []
+    for i, stage in enumerate(STAGES):
+        if stage["key"] == current_stage:
+            circle = f'background:{L["primary"]};color:#FFFFFF;'
+            label = f'color:{L["primary"]};font-weight:600;'
+            symbol = stage["icon"]
+        elif done[i]:
+            circle = f'background:{L["positive"]};color:#FFFFFF;'
+            label = f'color:{L["positive"]};'
+            symbol = "&#10003;"
+        else:
+            circle = f'background:{L["surface"]};color:{L["text_secondary"]};border:1px solid {L["hairline"]};'
+            label = f'color:{L["text_secondary"]};'
+            symbol = stage["icon"]
+        parts.append(
+            f'<div style="text-align:center;flex:1;">'
+            f'<div style="width:30px;height:30px;border-radius:50%;{circle}display:inline-flex;'
+            f'align-items:center;justify-content:center;font-size:13px;font-weight:600;">{symbol}</div>'
+            f'<div style="font-size:12px;margin-top:4px;{label}">{stage["label"]}</div></div>'
+        )
+        if i < len(STAGES) - 1:
+            line = L["positive"] if done[i] and done[i + 1] else L["hairline"]
+            parts.append(f'<div style="flex:0.5;height:2px;background:{line};align-self:center;margin-top:-10px;"></div>')
+    st.markdown(
+        f'<nav aria-label="Workflow" style="display:flex;align-items:flex-start;justify-content:space-between;'
+        f'padding:10px 0 14px;margin-bottom:8px;">{"".join(parts)}</nav>',
         unsafe_allow_html=True,
     )
 
@@ -210,7 +247,7 @@ with head_right:
     with r_col2:
         pin_clicked = st.button("Pin to compare", type="primary")
 
-render_workflow_status("results")
+_workflow_steps("results")
 
 # --- Survivorship warning -------------------------------------------------
 # The universe is today's index constituents projected backwards, so every
