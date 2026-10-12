@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy import stats as sp_stats
+from scipy.special import xlogy
 
 
 def parametric_var(
@@ -140,15 +141,14 @@ def var_backtest(
     breach_rate = breaches / total
     expected_rate = 1 - confidence
 
-    # Kupiec proportion-of-failures (POF) likelihood ratio test
-    if breaches == 0 or breaches == total:
-        kupiec_p = 0.0
-    else:
-        lr = -2 * (
-            np.log((1 - expected_rate) ** (total - breaches) * expected_rate ** breaches)
-            - np.log((1 - breach_rate) ** (total - breaches) * breach_rate ** breaches)
-        )
-        kupiec_p = float(1 - sp_stats.chi2.cdf(lr, df=1))
+    # Kupiec proportion-of-failures (POF) likelihood ratio test. xlogy treats
+    # 0 * log(0) as 0, so zero breaches (or all breaches) get a real p-value
+    # instead of an automatic reject, and log-likelihoods never underflow.
+    x, n = breaches, total
+    ll_null = xlogy(n - x, 1 - expected_rate) + xlogy(x, expected_rate)
+    ll_alt = xlogy(n - x, 1 - breach_rate) + xlogy(x, breach_rate)
+    lr = -2 * (ll_null - ll_alt)
+    kupiec_p = float(sp_stats.chi2.sf(lr, df=1))
 
     return {
         "breaches": breaches,
