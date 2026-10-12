@@ -318,6 +318,18 @@ def test_pbo_low_when_one_config_dominates():
     assert pbo < 0.3                            # backtest winner rarely disappoints
 
 
+def test_pbo_counts_median_rank_as_overfit_for_odd_configs():
+    """With an odd number of configs the in-sample winner can land exactly on
+    the OOS median (lambda = 0). Bailey et al. count that split as overfit
+    (lambda <= 0). On pure noise the winner's OOS rank is uniform on 1..N, so
+    PBO should be about (N + 1) / (2N) = 0.67 for N = 3, not 1/3."""
+    rng = np.random.RandomState(7)
+    pbos = [probability_of_backtest_overfitting(
+                pd.DataFrame(rng.randn(96, 3) * 0.03), n_splits=8)
+            for _ in range(100)]
+    assert np.mean(pbos) > 0.55
+
+
 def test_latest_month_staleness_flags_newly_sparse():
     rng = np.random.RandomState(0)
     rows = []
