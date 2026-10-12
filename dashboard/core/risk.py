@@ -34,14 +34,30 @@ def monte_carlo_var(
     returns: pd.Series, confidence: float = 0.95, n_sims: int = 10_000,
     seed: int = 42,
 ) -> dict:
-    """Monte Carlo VaR and CVaR using fitted normal distribution."""
+    """Monte Carlo VaR and CVaR from a Student-t fitted to the returns.
+
+    A normal fit would only repeat parametric VaR with noise, and a bootstrap
+    of a 1-month horizon would only repeat historical VaR. The t fit (maximum
+    likelihood) has fat tails, so it can show a loss worse than any month in
+    the sample. On normal data the fitted df is large and the result is close
+    to the normal one.
+
+    Below 24 months the fit is unstable and can show less risk than the other
+    methods, so VaR and CVaR are NaN. If df <= 2 the tail variance is infinite
+    (no finite mean if df <= 1), so a simulated CVaR is mostly noise and is NaN.
+    """
+    r = returns.dropna().values
+    if len(r) < 24:
+        return {"VaR": np.nan, "CVaR": np.nan, "method": "Monte Carlo"}
     rng = np.random.default_rng(seed)
-    mu = returns.mean()
-    sigma = returns.std()
-    simulated = rng.normal(mu, sigma, n_sims)
+    df, loc, scale = sp_stats.t.fit(r)
+    simulated = loc + scale * rng.standard_t(df, n_sims)
     var = -np.percentile(simulated, (1 - confidence) * 100)
     tail = simulated[simulated <= -var]
-    cvar = -tail.mean() if len(tail) > 0 else var
+    if df <= 2:
+        cvar = np.nan
+    else:
+        cvar = -tail.mean() if len(tail) > 0 else var
     return {"VaR": float(var), "CVaR": float(cvar), "method": "Monte Carlo"}
 
 

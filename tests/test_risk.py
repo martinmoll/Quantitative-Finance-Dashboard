@@ -104,6 +104,42 @@ def test_monte_carlo_var_deterministic():
     assert r1["VaR"] > 0
 
 
+def test_monte_carlo_var_simulates_fitted_student_t():
+    """Monte Carlo must not repeat parametric VaR. It simulates a Student-t fitted
+    to the returns, so on fat-tailed data the 99% VaR follows the t quantile and
+    is well above the normal one (about 18% here, against about 15%)."""
+    from scipy import stats
+    rets = pd.Series(np.random.default_rng(3).standard_t(4, 120) * 0.05 + 0.01)
+    mc = monte_carlo_var(rets, confidence=0.99, n_sims=200_000)
+    expected = -stats.t.ppf(0.01, *stats.t.fit(rets.values))
+    assert abs(mc["VaR"] - expected) < 0.003
+    assert mc["VaR"] > parametric_var(rets, confidence=0.99)["VaR"] + 0.02
+
+
+def test_monte_carlo_var_cvar_nan_with_infinite_tail_variance():
+    """One large outlier fits df ~ 1.38. For 1 < df <= 2 the mean exists but the
+    variance is infinite, so a simulated tail mean is mostly noise."""
+    base = np.random.default_rng(0).normal(0.01, 0.01, 29)
+    rets = pd.Series(np.r_[base, -0.6])
+    result = monte_carlo_var(rets, confidence=0.95)
+    assert np.isnan(result["CVaR"])
+    assert np.isfinite(result["VaR"])
+
+
+def test_monte_carlo_var_nan_below_24_months():
+    """A t fit on fewer than 24 months is unstable and can show less risk than
+    the other methods, so no estimate is given."""
+    result = monte_carlo_var(_make_returns(n=23), confidence=0.95)
+    assert np.isnan(result["VaR"])
+    assert np.isnan(result["CVaR"])
+    assert result["method"] == "Monte Carlo"
+    # Exactly 24 months runs the fit. The count is taken after NaNs are dropped.
+    assert np.isfinite(monte_carlo_var(_make_returns(n=24))["VaR"])
+    with_gap = _make_returns(n=24)
+    with_gap.iloc[5] = np.nan
+    assert np.isnan(monte_carlo_var(with_gap)["VaR"])
+
+
 def test_cornish_fisher_var_returns_skew_kurt():
     rets = _make_returns()
     result = cornish_fisher_var(rets, confidence=0.95)
