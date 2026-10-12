@@ -19,7 +19,9 @@ from core.diagnostics import (
     probabilistic_sharpe_ratio,
     deflated_sharpe_ratio,
     probability_of_backtest_overfitting,
+    trial_sharpes,
 )
+from core.currency import to_nok_unhedged
 
 
 def _r2_preds(pred_fn, n_months=14, n=50, seed=0):
@@ -328,6 +330,27 @@ def test_pbo_counts_median_rank_as_overfit_for_odd_configs():
                 pd.DataFrame(rng.randn(96, 3) * 0.03), n_splits=8)
             for _ in range(100)]
     assert np.mean(pbos) > 0.55
+
+
+def test_trial_sharpes_use_the_reporting_currency():
+    """DSR compares the tested series with the trial Sharpes, so both must be in
+    the same currency. In NOK mode each trial is converted like ``rets``."""
+    rng = np.random.RandomState(8)
+    idx = [f"2020-{m:02d}" for m in range(1, 13)]
+    a = pd.Series(rng.randn(12) * 0.05 + 0.01, index=idx)
+    b = pd.Series(rng.randn(12) * 0.05 + 0.02, index=idx)
+    fx = pd.Series(rng.randn(12) * 0.03, index=idx)
+
+    def sr(s):
+        return s.mean() / s.std()
+
+    usd = trial_sharpes([a, b])
+    nok = trial_sharpes([a, b], fx_ret=fx)
+
+    np.testing.assert_allclose(usd, [sr(a), sr(b)])
+    np.testing.assert_allclose(
+        nok, [sr(to_nok_unhedged(a, fx)), sr(to_nok_unhedged(b, fx))])
+    assert not np.allclose(nok, usd)
 
 
 def test_latest_month_staleness_flags_newly_sparse():
