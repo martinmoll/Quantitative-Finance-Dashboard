@@ -19,7 +19,9 @@ from core.diagnostics import (
     probabilistic_sharpe_ratio,
     deflated_sharpe_ratio,
     probability_of_backtest_overfitting,
+    trial_sharpes,
 )
+from core.currency import to_nok_unhedged
 
 
 def _r2_preds(pred_fn, n_months=14, n=50, seed=0):
@@ -202,6 +204,46 @@ def test_bootstrap_alpha_ci(sample_returns, sample_ff5):
     assert result["lo"] < result["hi"]
 
 
+def _ar1(n, phi, seed):
+    rng = np.random.RandomState(seed)
+    e = rng.randn(n) * 0.04
+    x = np.zeros(n)
+    for t in range(1, n):
+        x[t] = phi * x[t - 1] + e[t]
+    return x
+
+
+def test_bootstrap_sharpe_ci_widens_for_autocorrelated_returns():
+    """A shuffled copy holds the same values without the autocorrelation. An iid
+    bootstrap cannot tell the two apart (width ratio ~1.0). A block bootstrap
+    keeps runs of months together, so the autocorrelated CI must be wider."""
+    x = _ar1(120, 0.6, seed=0) + 0.01
+    shuffled = np.random.RandomState(99).permutation(x)
+
+    def width(s):
+        r = bootstrap_sharpe_ci(pd.Series(s), n_boot=2000)
+        return r["hi"] - r["lo"]
+
+    assert width(x) > 1.25 * width(shuffled)
+
+
+def test_bootstrap_alpha_ci_widens_for_autocorrelated_residuals(sample_ff5):
+    """Same idea for the FF5 alpha: AR(1) residuals against the same rows shuffled
+    together (factors and returns), which removes only the autocorrelation."""
+    ff5 = sample_ff5
+    n = len(ff5)
+    y = 0.005 + ff5["RF"] + 1.0 * ff5["Mkt-RF"] + _ar1(n, 0.6, seed=0)
+    perm = np.random.RandomState(99).permutation(n)
+    ff5_sh = ff5.iloc[perm].set_axis(ff5.index)
+    y_sh = y.iloc[perm].set_axis(y.index)
+
+    def width(rets, factors):
+        r = bootstrap_alpha_ci(rets, factors, n_boot=2000)
+        return r["hi"] - r["lo"]
+
+    assert width(y, ff5) > 1.25 * width(y_sh, ff5_sh)
+
+
 def test_bootstrap_alpha_ci_insufficient_data(sample_ff5):
     short = pd.Series([0.01] * 5, index=sample_ff5.index[:5])
     result = bootstrap_alpha_ci(short, sample_ff5, n_boot=100)
@@ -276,6 +318,39 @@ def test_pbo_low_when_one_config_dominates():
     base[:, 0] += 0.05                          # config 0 has a persistent edge
     pbo = probability_of_backtest_overfitting(pd.DataFrame(base), n_splits=8)
     assert pbo < 0.3                            # backtest winner rarely disappoints
+
+
+def test_pbo_counts_median_rank_as_overfit_for_odd_configs():
+    """With an odd number of configs the in-sample winner can land exactly on
+    the OOS median (lambda = 0). Bailey et al. count that split as overfit
+    (lambda <= 0). On pure noise the winner's OOS rank is uniform on 1..N, so
+    PBO should be about (N + 1) / (2N) = 0.67 for N = 3, not 1/3."""
+    rng = np.random.RandomState(7)
+    pbos = [probability_of_backtest_overfitting(
+                pd.DataFrame(rng.randn(96, 3) * 0.03), n_splits=8)
+            for _ in range(100)]
+    assert np.mean(pbos) > 0.55
+
+
+def test_trial_sharpes_use_the_reporting_currency():
+    """DSR compares the tested series with the trial Sharpes, so both must be in
+    the same currency. In NOK mode each trial is converted like ``rets``."""
+    rng = np.random.RandomState(8)
+    idx = [f"2020-{m:02d}" for m in range(1, 13)]
+    a = pd.Series(rng.randn(12) * 0.05 + 0.01, index=idx)
+    b = pd.Series(rng.randn(12) * 0.05 + 0.02, index=idx)
+    fx = pd.Series(rng.randn(12) * 0.03, index=idx)
+
+    def sr(s):
+        return s.mean() / s.std()
+
+    usd = trial_sharpes([a, b])
+    nok = trial_sharpes([a, b], fx_ret=fx)
+
+    np.testing.assert_allclose(usd, [sr(a), sr(b)])
+    np.testing.assert_allclose(
+        nok, [sr(to_nok_unhedged(a, fx)), sr(to_nok_unhedged(b, fx))])
+    assert not np.allclose(nok, usd)
 
 
 def test_latest_month_staleness_flags_newly_sparse():

@@ -44,6 +44,28 @@ Follow this sequence for every task. Do not skip steps.
 - Be precise about uncertainty. "I am not sure this library supports streaming" — good. "I think this should work" — unacceptable.
 - Use a standard of ASD-STE100, Simplified Technical English when explaining and guiding me, as well as documenting the code.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `martinmoll/Quantitative-Finance-Dashboard`, through the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Project agents
+
+During implementation, delegate by area:
+- `pipeline/features/*` or the assembler → `pipeline-feature-engineer`
+- A new or changed data source → `data-source-integrator`
+- `dashboard/pages/*` or `dashboard/components/*` → `dashboard-page-builder`
+- The final diff check before done → `test-review-guardian`
+
 ## Self-check: catch these failure modes
 
 Before completing any task, check yourself for:

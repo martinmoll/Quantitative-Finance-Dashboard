@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from scipy import stats as sp_stats
+from scipy.special import xlogy
 
 
 def parametric_var(
@@ -34,14 +35,30 @@ def monte_carlo_var(
     returns: pd.Series, confidence: float = 0.95, n_sims: int = 10_000,
     seed: int = 42,
 ) -> dict:
-    """Monte Carlo VaR and CVaR using fitted normal distribution."""
+    """Monte Carlo VaR and CVaR from a Student-t fitted to the returns.
+
+    A normal fit would only repeat parametric VaR with noise, and a bootstrap
+    of a 1-month horizon would only repeat historical VaR. The t fit (maximum
+    likelihood) has fat tails, so it can show a loss worse than any month in
+    the sample. On normal data the fitted df is large and the result is close
+    to the normal one.
+
+    Below 24 months the fit is unstable and can show less risk than the other
+    methods, so VaR and CVaR are NaN. If df <= 2 the tail variance is infinite
+    (no finite mean if df <= 1), so a simulated CVaR is mostly noise and is NaN.
+    """
+    r = returns.dropna().values
+    if len(r) < 24:
+        return {"VaR": np.nan, "CVaR": np.nan, "method": "Monte Carlo"}
     rng = np.random.default_rng(seed)
-    mu = returns.mean()
-    sigma = returns.std()
-    simulated = rng.normal(mu, sigma, n_sims)
+    df, loc, scale = sp_stats.t.fit(r)
+    simulated = loc + scale * rng.standard_t(df, n_sims)
     var = -np.percentile(simulated, (1 - confidence) * 100)
     tail = simulated[simulated <= -var]
-    cvar = -tail.mean() if len(tail) > 0 else var
+    if df <= 2:
+        cvar = np.nan
+    else:
+        cvar = -tail.mean() if len(tail) > 0 else var
     return {"VaR": float(var), "CVaR": float(cvar), "method": "Monte Carlo"}
 
 
@@ -100,17 +117,23 @@ def component_var(
 def rolling_var(
     returns: pd.Series, window: int = 24, confidence: float = 0.95,
 ) -> pd.DataFrame:
-    """Compute rolling parametric and historical VaR over a sliding window."""
+    """Compute rolling parametric and historical VaR over a sliding window.
+
+    Each VaR is placed on the month it predicts: the value on month ``i`` is
+    estimated from the ``window`` months before it, as in ``var_backtest``. The
+    window never includes the month it is compared with, so a large loss cannot
+    widen its own VaR and hide the breach.
+    """
     param_vars = []
     hist_vars = []
     idx = []
-    for i in range(window, len(returns) + 1):
+    for i in range(window, len(returns)):
         chunk = returns.iloc[i - window:i]
         pv = parametric_var(chunk, confidence)
         hv = historical_var(chunk, confidence)
         param_vars.append(pv["VaR"])
         hist_vars.append(hv["VaR"])
-        idx.append(returns.index[i - 1])
+        idx.append(returns.index[i])
     return pd.DataFrame(
         {"Parametric": param_vars, "Historical": hist_vars}, index=idx,
     )
@@ -140,15 +163,14 @@ def var_backtest(
     breach_rate = breaches / total
     expected_rate = 1 - confidence
 
-    # Kupiec proportion-of-failures (POF) likelihood ratio test
-    if breaches == 0 or breaches == total:
-        kupiec_p = 0.0
-    else:
-        lr = -2 * (
-            np.log((1 - expected_rate) ** (total - breaches) * expected_rate ** breaches)
-            - np.log((1 - breach_rate) ** (total - breaches) * breach_rate ** breaches)
-        )
-        kupiec_p = float(1 - sp_stats.chi2.cdf(lr, df=1))
+    # Kupiec proportion-of-failures (POF) likelihood ratio test. xlogy treats
+    # 0 * log(0) as 0, so zero breaches (or all breaches) get a real p-value
+    # instead of an automatic reject, and log-likelihoods never underflow.
+    x, n = breaches, total
+    ll_null = xlogy(n - x, 1 - expected_rate) + xlogy(x, expected_rate)
+    ll_alt = xlogy(n - x, 1 - breach_rate) + xlogy(x, breach_rate)
+    lr = -2 * (ll_null - ll_alt)
+    kupiec_p = float(sp_stats.chi2.sf(lr, df=1))
 
     return {
         "breaches": breaches,

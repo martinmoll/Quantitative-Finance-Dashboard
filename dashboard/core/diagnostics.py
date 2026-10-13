@@ -284,13 +284,28 @@ def compute_r2_oos(predictions: dict[str, pd.DataFrame]) -> float:
     return 1.0 - ss_res / ss_tot
 
 
+def _block_indices(n: int, block_len: int, rng: np.random.Generator) -> np.ndarray:
+    """Row indices for one moving-block bootstrap resample (Künsch 1989).
+
+    Draws random starts, takes ``block_len`` consecutive months from each, and
+    cuts the result to ``n``. Keeping months together preserves the
+    autocorrelation an iid resample destroys; iid makes the CI too narrow when
+    returns are autocorrelated. The block is capped at ``n // 2`` so a short
+    series still has several distinct starts.
+    """
+    b = max(1, min(block_len, n // 2))
+    starts = rng.integers(0, n - b + 1, size=-(-n // b))
+    return (starts[:, None] + np.arange(b)).ravel()[:n]
+
+
 def bootstrap_sharpe_ci(
     returns: pd.Series,
     n_boot: int = 5000,
     ci: float = 0.95,
     seed: int = 42,
+    block_len: int = 6,
 ) -> dict:
-    """Bootstrap confidence interval for the annualized Sharpe ratio."""
+    """Moving-block bootstrap confidence interval for the annualized Sharpe ratio."""
     s = returns.dropna().values
     if len(s) < 6:
         return {"point": np.nan, "lo": np.nan, "hi": np.nan, "ci": ci}
@@ -300,7 +315,7 @@ def bootstrap_sharpe_ci(
     boot_srs = np.empty(n_boot)
 
     for i in range(n_boot):
-        sample = rng.choice(s, size=n, replace=True)
+        sample = s[_block_indices(n, block_len, rng)]
         mu = sample.mean() * 12
         sigma = sample.std(ddof=1) * np.sqrt(12)
         boot_srs[i] = mu / sigma if sigma > 0 else np.nan
@@ -318,8 +333,13 @@ def bootstrap_alpha_ci(
     n_boot: int = 5000,
     ci: float = 0.95,
     seed: int = 42,
+    block_len: int = 6,
 ) -> dict:
-    """Bootstrap confidence interval for annualized FF5 alpha."""
+    """Moving-block bootstrap confidence interval for annualized FF5 alpha.
+
+    Resamples (return, factors) rows together, in blocks of ``block_len``
+    months, so autocorrelated residuals widen the CI as they should.
+    """
     from core.risk import _ff5_available
     available = _ff5_available(ff5_factors)
     common = portfolio_returns.dropna().index.intersection(ff5_factors.dropna().index)
@@ -337,7 +357,7 @@ def bootstrap_alpha_ci(
     boot_alphas = np.empty(n_boot)
 
     for i in range(n_boot):
-        idx = rng.choice(n, size=n, replace=True)
+        idx = _block_indices(n, block_len, rng)
         y_b = y_excess[idx]
         X_b = X_const[idx]
         try:
@@ -425,6 +445,25 @@ def deflated_sharpe_ratio(returns: pd.Series, trial_sharpes) -> dict:
     }
 
 
+def trial_sharpes(returns_list, fx_ret: pd.Series | None = None) -> list[float]:
+    """Per-period Sharpe of each trial, for ``deflated_sharpe_ratio``.
+
+    The trials must be in the same currency as the tested series. When the page
+    reports in NOK, pass the same ``fx_ret`` so each trial is converted the
+    same way. Trials with zero volatility are skipped.
+    """
+    from core.currency import to_nok_unhedged
+
+    out = []
+    for r in returns_list:
+        r = r.dropna()
+        if fx_ret is not None:
+            r = to_nok_unhedged(r, fx_ret)
+        if r.std() > 0:
+            out.append(r.mean() / r.std())
+    return out
+
+
 def _col_sharpe(a: np.ndarray) -> np.ndarray:
     mu = a.mean(axis=0)
     sd = a.std(axis=0, ddof=1)
@@ -438,7 +477,7 @@ def probability_of_backtest_overfitting(
 
     ``returns_matrix`` is months × configs. Time is split into ``n_splits``
     blocks; over every symmetric in-sample / out-of-sample partition, we check
-    how often the in-sample-best config lands *below* the out-of-sample median —
+    how often the in-sample-best config lands *at or below* the out-of-sample median —
     i.e. how often picking the backtest winner would disappoint live. Returns a
     probability in [0, 1] (>0.5 signals selection is likely overfitting), or NaN
     if there aren't enough configs / history.
@@ -464,7 +503,9 @@ def probability_of_backtest_overfitting(
         best = int(np.nanargmax(is_sr))
         rank = int(np.sum(oos_sr <= oos_sr[best]))  # 1..N (N = OOS-best)
         omega = rank / (N + 1)
-        if np.log(omega / (1 - omega)) < 0:  # in-sample winner below OOS median
+        # At or below the OOS median. With an odd N the winner can land exactly
+        # on the median (lambda = 0); Bailey et al. count that as overfit.
+        if np.log(omega / (1 - omega)) <= 0:
             overfit += 1
         total += 1
 
